@@ -1,0 +1,5 @@
+client/node_modules/
+client/dist/
+server/lastcandle
+server/.lastcandle-port
+*.log

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Last Candle</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='12' y='12' width='8' height='18' rx='1' fill='%23f2e6c6'/><path d='M16 2c4 5 4 8 0 10c-4-2-4-5 0-10z' fill='%23ffa640'/></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&display=swap" />
+  </head>
+  <body>
+    <div id="game"></div>
+
+    <section id="home" class="screen">
+      <div class="card">
+        <h1 class="title">Last Candle</h1>
+        <p class="tagline">A dinner party. A storm. One guest has made a pact with the house.</p>
+        <label>Your name<input id="name" maxlength="16" autocomplete="off" placeholder="The Colonel" /></label>
+        <button id="create" class="primary">Host a new dinner party</button>
+        <div class="or">or join one</div>
+        <div class="row">
+          <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" />
+          <button id="join">Join</button>
+        </div>
+        <p id="homeError" class="error"></p>
+      </div>
+    </section>
+
+    <section id="lobby" class="screen hidden">
+      <div class="card">
+        <p class="small">Room code</p>
+        <div id="lobbyCode" class="code"></div>
+        <p class="small">Invite link: <a id="lobbyLink" title="Click to copy"></a></p>
+        <ul id="lobbyPlayers" class="players"></ul>
+        <div id="ownerControls">
+          <div class="row">
+            <button id="addBot">Add a bot</button>
+            <button id="start" class="primary">Begin the night</button>
+          </div>
+        </div>
+        <p id="guestWait" class="small">Waiting for the host of the lobby to begin…</p>
+        <p id="lobbyNote" class="small"></p>
+      </div>
+    </section>
+
+    <section id="hud" class="hidden">
+      <div id="topbar">
+        <div id="roleCard"></div>
+        <div id="clock"></div>
+        <div id="status"></div>
+      </div>
+      <div id="candle">
+        <div id="candleBody"><div id="wax"></div></div>
+        <div id="flame"></div>
+        <div id="waxText"></div>
+      </div>
+      <div id="ecto" class="hidden"></div>
+      <div id="hints"></div>
+      <div id="progress" class="hidden"><div></div><span id="progressText"></span></div>
+      <div id="mirrorBox" class="hidden">
+        <canvas id="mirror" width="240" height="180"></canvas>
+        <div id="mirrorWord"></div>
+        <p class="small">The mirror shows the whole room. Look closely.</p>
+      </div>
+      <div id="toasts"></div>
+      <div id="knockArrow" class="hidden">➤</div>
+      <div id="ghostChat" class="hidden">
+        <div id="ghostLog"></div>
+        <input id="ghostInput" maxlength="200" placeholder="Whisper to the other ghosts (Enter)" />
+      </div>
+    </section>
+
+    <section id="reveal" class="overlay hidden"></section>
+
+    <section id="meeting" class="overlay hidden">
+      <div class="card wide">
+        <div class="meetingHead">
+          <h2 id="meetingTitle"></h2>
+          <span id="meetingTimer"></span>
+        </div>
+        <p id="meetingStage"></p>
+        <div class="meetingBody">
+          <div id="voteList"></div>
+          <div class="chat">
+            <div id="chatLog"></div>
+            <input id="chatInput" maxlength="200" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="words" class="overlay hidden"></section>
+
+    <section id="end" class="overlay hidden">
+      <div class="card">
+        <h1 id="endTitle"></h1>
+        <p id="endReason"></p>
+        <ul id="endRoles" class="players"></ul>
+        <div id="endOwner"><button id="backToLobby" class="primary">Back to the lobby</button></div>
+        <p id="endWait" class="small">Waiting for the host of the lobby…</p>
+      </div>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
