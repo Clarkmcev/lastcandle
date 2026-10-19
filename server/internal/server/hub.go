@@ -20,6 +20,7 @@ import (
 type Hub struct {
 	cfg     game.Config
 	origins []string
+	dev     bool // allow sandbox matches (developer mode)
 
 	mu    sync.Mutex
 	rooms map[string]*Room
@@ -28,6 +29,9 @@ type Hub struct {
 func NewHub(cfg game.Config, origins []string) *Hub {
 	return &Hub{cfg: cfg, origins: origins, rooms: map[string]*Room{}}
 }
+
+// EnableDev lets room owners start sandbox matches.
+func (h *Hub) EnableDev() { h.dev = true }
 
 // Codes skip letters that are easy to misread aloud (I, O, L).
 const codeLetters = "ABCDEFGHJKMNPQRSTUVWXYZ"
