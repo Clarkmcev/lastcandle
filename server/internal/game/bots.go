@@ -142,6 +142,22 @@ func (m *Match) randomFloor() Vec {
 	}
 }
 
+// steer points a bot at a spot. The last step is shortened so it lands on
+// the spot instead of overshooting, which at high speeds (a step longer
+// than the arrival window) left bots swinging around a waypoint forever.
+func (m *Match) steer(p *Player, to Vec) Vec {
+	speed := m.Cfg.Speed
+	if p.Ghost {
+		speed = m.Cfg.GhostSpeed
+	}
+	d := to.Sub(p.Pos)
+	dist := d.Len()
+	if step := speed * m.Cfg.Tick; dist < step && step > 0 {
+		return d.Scale(1 / step)
+	}
+	return d.Normalized()
+}
+
 // botFollow walks the path, then holds E or waits at the goal.
 func (m *Match) botFollow(p *Player, dt float64) {
 	b := p.brain
@@ -150,7 +166,7 @@ func (m *Match) botFollow(p *Player, dt float64) {
 		if wp.Dist(p.Pos) < 0.15 {
 			b.path = b.path[1:]
 		} else {
-			p.botDir = wp.Sub(p.Pos).Normalized()
+			p.botDir = m.steer(p, wp)
 		}
 		if p.Pos.Dist(b.lastPos) < 0.02 {
 			if b.stuckFor += dt; b.stuckFor > 1.5 {
@@ -252,9 +268,9 @@ func (m *Match) botHunt(p *Player, dt float64) bool {
 		b.path = b.path[1:]
 	}
 	if len(b.path) > 0 {
-		p.botDir = b.path[0].Sub(p.Pos).Normalized()
+		p.botDir = m.steer(p, b.path[0])
 	} else {
-		p.botDir = prey.Pos.Sub(p.Pos).Normalized()
+		p.botDir = m.steer(p, prey.Pos)
 	}
 	return true
 }
@@ -267,7 +283,7 @@ func (m *Match) ghostWander(p *Player, dt float64) {
 		}
 		b.goal, b.hasGoal, b.wait = m.randomFloor(), true, 2+m.rng.Float64()*4
 	}
-	p.botDir = b.goal.Sub(p.Pos).Normalized()
+	p.botDir = m.steer(p, b.goal)
 }
 
 func (m *Match) botVote(p *Player, dt float64) {

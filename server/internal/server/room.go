@@ -38,6 +38,10 @@ type inMsg struct {
 	Target string  `json:"target"`
 	Word   string  `json:"word"`
 	Text   string  `json:"text"`
+	Dev    bool    `json:"dev"`
+	Role   string  `json:"role"`
+	// Values holds settings changes, by setting key (see game.Settings).
+	Values map[string]float64 `json:"values"`
 }
 
 type clientMsg struct {
@@ -81,11 +85,14 @@ type Room struct {
 	owner   string
 	match   *game.Match
 	state   string // lobby, playing, ended
+	// cfg is this room's rules: the server's config, as changed by the
+	// owner on the settings page.
+	cfg game.Config
 }
 
 func newRoom(h *Hub, code string) *Room {
 	return &Room{
-		hub: h, code: code, state: "lobby",
+		hub: h, code: code, state: "lobby", cfg: h.cfg,
 		join: make(chan joinReq), leave: make(chan *Client), in: make(chan clientMsg, 256),
 	}
 }
@@ -265,6 +272,7 @@ func (r *Room) broadcastLobby() {
 	r.broadcast(map[string]any{
 		"t": "lobby", "code": r.code, "owner": r.owner, "state": r.state,
 		"players": players, "min": MinPlayers, "max": MaxPlayers,
+		"settings": game.Settings, "values": r.cfg.SettingValues(), "defaults": r.hub.cfg.SettingValues(),
 	})
 }
 
@@ -277,7 +285,11 @@ func (r *Room) handle(c *Client, msg inMsg) {
 	switch msg.T {
 	case "start":
 		if isOwner && r.state != "playing" {
-			r.start(c)
+			if msg.Dev {
+				r.startDev(c, msg.Role)
+			} else {
+				r.start(c)
+			}
 		}
 	case "addBot":
 		if isOwner && r.state != "playing" && len(r.members) < MaxPlayers {
@@ -297,6 +309,13 @@ func (r *Room) handle(c *Client, msg inMsg) {
 			r.state, r.match = "lobby", nil
 			r.members = slices.DeleteFunc(r.members, func(x *member) bool { return !x.bot && x.client == nil })
 			r.broadcastLobby()
+		}
+	case "settings":
+		// Only the owner changes the rules, in the lobby or mid-match. An
+		// invalid change is dropped; the lobby goes out again either way so
+		// every settings page shows the rules actually in force.
+		if isOwner {
+			r.changeSettings(msg.Values)
 		}
 	case "chat":
 		r.chat(m, msg.Text)
@@ -321,6 +340,18 @@ func (r *Room) handle(c *Client, msg inMsg) {
 	case "vote":
 		r.match.Vote(m.id, msg.Target)
 	}
+}
+
+func (r *Room) changeSettings(values map[string]float64) {
+	if err := r.cfg.ApplySettings(values); err != nil {
+		log.Printf("room %s: settings: %v", r.code, err)
+	} else if r.state == "playing" {
+		// The night in progress takes the change too, and every client
+		// gets the rules it predicts movement with.
+		r.match.ApplySettings(values)
+		r.broadcast(map[string]any{"t": "config", "config": r.match.ClientConfig()})
+	}
+	r.broadcastLobby()
 }
 
 func clamp1(v float64) float64 {
@@ -377,7 +408,7 @@ func (r *Room) start(c *Client) {
 			seats = append(seats, game.Seat{ID: m.id, Name: m.name, Color: m.color, Bot: m.bot})
 		}
 	}
-	r.match = game.NewMatch(r.hub.cfg, seats, time.Now().UnixNano())
+	r.match = game.NewMatch(r.cfg, seats, time.Now().UnixNano())
 	r.state = "playing"
 	log.Printf("room %s: match started with %d players", r.code, len(seats))
 	for _, m := range r.members {
@@ -385,6 +416,38 @@ func (r *Room) start(c *Client) {
 			m.client.push(r.match.StartFor(m.id))
 		}
 	}
+	r.broadcastLobby() // the settings page now shows the match's rules
+}
+
+// startDev starts a sandbox match (developer mode) with whoever is in the
+// room, even alone: no minimum, no grace period, and it never ends. The owner
+// picks their role and everyone else is a guest, so bots never hunt them.
+func (r *Room) startDev(c *Client, role string) {
+	if !r.hub.dev {
+		c.push(map[string]string{"t": "error", "text": "Developer mode is off. Start the server with -dev (make dev-server does)."})
+		return
+	}
+	var seats []game.Seat
+	for _, m := range r.members {
+		if m.bot || m.client != nil {
+			s := game.Seat{ID: m.id, Name: m.name, Color: m.color, Bot: m.bot, Role: game.RoleGuest}
+			if m.id == r.owner && role == "host" {
+				s.Role = game.RoleHost
+			}
+			seats = append(seats, s)
+		}
+	}
+	cfg := r.cfg
+	cfg.Sandbox, cfg.Grace = true, 0
+	r.match = game.NewMatch(cfg, seats, time.Now().UnixNano())
+	r.state = "playing"
+	log.Printf("room %s: developer match started with %d players", r.code, len(seats))
+	for _, m := range r.members {
+		if m.client != nil {
+			m.client.push(r.match.StartFor(m.id))
+		}
+	}
+	r.broadcastLobby() // the settings page now shows the match's rules
 }
 
 func (r *Room) tick() {

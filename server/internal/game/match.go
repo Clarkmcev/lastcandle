@@ -57,6 +57,7 @@ type Seat struct {
 	Name  string
 	Color string
 	Bot   bool
+	Role  Role // forced role; if any seat sets one, unset seats are guests
 }
 
 type Player struct {
@@ -177,6 +178,7 @@ type Match struct {
 	words      map[int]*mirrorWord
 	deaths     int
 	restless   bool
+	sandboxEnd string // last ending sandbox mode suppressed
 
 	Winner    Team
 	WinReason string
@@ -187,7 +189,7 @@ type Match struct {
 func NewMatch(cfg Config, seats []Seat, seed int64) *Match {
 	m := &Match{
 		Cfg:   cfg,
-		Map:   NewManor(),
+		Map:   BuildManor(cfg.RoomWidth, cfg.RoomHeight),
 		byID:  map[string]*Player{},
 		Phase: PhasePlay,
 		words: map[int]*mirrorWord{},
@@ -195,6 +197,7 @@ func NewMatch(cfg Config, seats []Seat, seed int64) *Match {
 	}
 	order := m.rng.Perm(len(seats))
 	hosts := HostCount(len(seats))
+	forced := slices.ContainsFunc(seats, func(s Seat) bool { return s.Role != "" })
 	for i, idx := range order {
 		s := seats[idx]
 		p := &Player{
@@ -203,8 +206,15 @@ func NewMatch(cfg Config, seats []Seat, seed int64) *Match {
 			Alive: true, Lit: true, Wax: cfg.StartWax,
 			KillCD: cfg.KillCD, SnuffCD: cfg.Grace, SabCD: cfg.Grace,
 		}
-		if i < hosts {
+		if forced {
+			if s.Role == RoleHost {
+				p.Role, p.Team = RoleHost, TeamManor
+			}
+		} else if i < hosts {
 			p.Role, p.Team = RoleHost, TeamManor
+		}
+		if cfg.Sandbox {
+			p.KillCD = 0
 		}
 		if s.Bot {
 			p.brain = &brain{}
@@ -393,8 +403,22 @@ func (m *Match) kill(p *Player) string {
 	m.die(target, true)
 	p.KillCD = m.Cfg.KillCD
 	m.emit(Event{Kind: "killed", To: []string{target.ID}, Text: "You were killed in the dark. You are now a ghost."})
+	m.sound("kill", target.Pos, p.ID, target.ID)
 	m.checkWin()
 	return ""
+}
+
+// sound plays a noise at pos for everyone within earshot, living or dead,
+// and always for the players named. Hearing a snuff or a struggle in the
+// dark nearby is a clue, so it travels through walls but not far.
+func (m *Match) sound(name string, pos Vec, always ...string) {
+	var to []string
+	for _, q := range m.Players {
+		if slices.Contains(always, q.ID) || q.Pos.Dist(pos) <= m.Cfg.HearRange {
+			to = append(to, q.ID)
+		}
+	}
+	m.emit(Event{Kind: "sound", Text: name, X: pos.X, Y: pos.Y, To: to})
 }
 
 func (m *Match) die(p *Player, body bool) {
@@ -740,6 +764,9 @@ func (m *Match) onHour(h int) bool {
 		} else {
 			m.end(TeamManor, "Dawn breaks, but too few guests are left to see it.")
 		}
+		if m.Cfg.Sandbox {
+			m.Clock, m.hour = 0, 0 // the night starts over
+		}
 		return true
 	}
 	if h == 2 || h == 4 || h == 6 {
@@ -780,6 +807,7 @@ func (m *Match) updateSnuff(p *Player, dt float64) {
 		p.SnuffCD = m.Cfg.SnuffCD
 		m.Smoke = append(m.Smoke, &Smoke{Pos: t.Pos, Dir: t.Pos.Sub(p.Pos).Normalized(), T: m.Cfg.SmokeTime})
 		m.emit(Event{Kind: "snuffed", To: []string{t.ID}, Text: "Your candle was blown out! Your hands shake too much to relight it for a moment."})
+		m.sound("snuff", t.Pos, p.ID, t.ID)
 		reset()
 	}
 }
@@ -852,6 +880,7 @@ func (m *Match) updateInteractions(dt float64) {
 	if readers >= 2 {
 		if m.Read += dt; m.Read >= m.Cfg.ReadTime {
 			m.end(TeamGuests, "The will is read aloud at the altar. The manor releases its guests.")
+			m.Read = 0
 		}
 	} else {
 		m.Read = 0
@@ -1078,6 +1107,14 @@ func (m *Match) checkWin() {
 }
 
 func (m *Match) end(w Team, reason string) {
+	if m.Cfg.Sandbox {
+		// Say once what would have happened, then play on.
+		if reason != m.sandboxEnd {
+			m.sandboxEnd = reason
+			m.toast("[dev] The match would end here: " + reason)
+		}
+		return
+	}
 	m.Phase = PhaseEnded
 	m.Winner, m.WinReason = w, reason
 	m.Meeting = nil

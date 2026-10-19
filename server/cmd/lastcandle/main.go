@@ -4,7 +4,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -22,10 +24,20 @@ func main() {
 	addr := flag.String("addr", ":8080", "listen address; the next free port is used if this one is taken")
 	static := flag.String("static", "../client/dist", "directory of the built web client (skipped if missing)")
 	origins := flag.String("origins", "localhost:*,127.0.0.1:*", "extra allowed WebSocket origins, comma separated")
+	dev := flag.Bool("dev", false, "developer mode: open the client with ?dev to start an empty sandbox match")
+	configPath := flag.String("config", "lastcandle.json", "JSON game config (speed, room size, …); defaults are used if the file is missing")
 	portFile := flag.String("portfile", "", "write the port actually used to this file (the Vite dev proxy reads it)")
 	flag.Parse()
 
-	cfg := game.DefaultConfig()
+	cfg, err := game.LoadConfig(*configPath)
+	switch {
+	case err == nil:
+		log.Printf("game config from %s", *configPath)
+	case errors.Is(err, fs.ErrNotExist) && !flagSet("config"):
+		log.Printf("no %s; using the default game config", *configPath)
+	default:
+		log.Fatal(err)
+	}
 	// Shorter nights make playtesting quicker, e.g. LASTCANDLE_HOUR_SECONDS=20.
 	if v, err := strconv.ParseFloat(os.Getenv("LASTCANDLE_HOUR_SECONDS"), 64); err == nil && v > 0 {
 		cfg.HourSeconds = v
@@ -58,6 +70,10 @@ func main() {
 	}
 
 	hub := server.NewHub(cfg, strings.Split(*origins, ","))
+	if *dev {
+		hub.EnableDev()
+		log.Printf("developer mode: add ?dev to the client URL for an empty test match")
+	}
 	srv := &http.Server{Handler: hub.Handler(staticDir)}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -70,4 +86,10 @@ func main() {
 	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		log.Print(err)
 	}
+}
+
+func flagSet(name string) bool {
+	set := false
+	flag.Visit(func(f *flag.Flag) { set = set || f.Name == name })
+	return set
 }

@@ -1,6 +1,9 @@
 package game
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
 // Tile kinds as sent to the client.
 const (
@@ -87,26 +90,75 @@ func (m *Map) Rows() []string {
 
 func tileCenter(x, y int) Vec { return Vec{float64(x) + 0.5, float64(y) + 0.5} }
 
-// NewManor builds the 10-room floor plan from the design doc.
-func NewManor() *Map {
-	m := &Map{W: 48, H: 43}
+// The design doc's floor plan is drawn with 14×10 side rooms. Every
+// position below is in that base plan; BuildManor moves it to fit the
+// configured room size.
+const (
+	BaseRoomWidth  = 14
+	BaseRoomHeight = 10
+	MinRoomWidth   = 10
+	MinRoomHeight  = 8
+	// The client bakes the whole floor into one texture at 32 px a tile;
+	// 30-tile rooms keep it under 4096 px, the limit on many GPUs.
+	MaxRoomSize = 30
+)
+
+// NewManor builds the floor plan at its base size.
+func NewManor() *Map { return BuildManor(BaseRoomWidth, BaseRoomHeight) }
+
+// roomGrid places the 10 rooms for side rooms of w×h floor tiles: three
+// columns (the middle one 2 tiles wider) over four rows (the cellar row 2
+// tiles shorter), with one wall tile between them.
+func roomGrid(w, h int) (rooms []Room, width, height int) {
+	cols := []int{w, w + 2, w}
+	rows := []int{h, h, h, h - 2}
+	starts := func(sizes []int) []int {
+		s := []int{1}
+		for _, n := range sizes[:len(sizes)-1] {
+			s = append(s, s[len(s)-1]+n+1)
+		}
+		return s
+	}
+	xs, ys := starts(cols), starts(rows)
+	for _, r := range []struct {
+		id, name string
+		col, row int
+	}{
+		{"library", "Library", 0, 0}, {"chapel", "Chapel", 1, 0}, {"nursery", "Nursery", 2, 0},
+		{"study", "Study", 0, 1}, {"dining", "Dining Hall", 1, 1}, {"ballroom", "Ballroom", 2, 1},
+		{"conservatory", "Conservatory", 0, 2}, {"entrance", "Entrance Hall", 1, 2}, {"kitchen", "Kitchen", 2, 2},
+		{"cellar", "Cellar", 2, 3},
+	} {
+		x0, y0 := xs[r.col], ys[r.row]
+		rooms = append(rooms, Room{r.id, r.name, x0, y0, x0 + cols[r.col] - 1, y0 + rows[r.row] - 1})
+	}
+	return rooms, xs[2] + cols[2] + 1, ys[3] + rows[3] + 1
+}
+
+// stretch moves v from [a0, a1] to [b0, b1]: the ends stay on the ends (so
+// things against a wall stay there) and the rest keep their proportion.
+func stretch(v, a0, a1, b0, b1 int) int {
+	switch v {
+	case a0:
+		return b0
+	case a1:
+		return b1
+	}
+	n := b0 + int(math.Round(float64(v-a0)*float64(b1-b0)/float64(a1-a0)))
+	return max(b0+1, min(b1-1, n))
+}
+
+// BuildManor builds the floor plan with side rooms of w×h floor tiles.
+// Callers keep w and h within the Min/Max limits above.
+func BuildManor(w, h int) *Map {
+	base, _, _ := roomGrid(BaseRoomWidth, BaseRoomHeight)
+	rooms, width, height := roomGrid(w, h)
+	m := &Map{W: width, H: height, Rooms: rooms}
 	m.Tiles = make([]byte, m.W*m.H)
 	m.roomIndex = make([]int, m.W*m.H)
 	for i := range m.Tiles {
 		m.Tiles[i] = TileWall
 		m.roomIndex[i] = -1
-	}
-	m.Rooms = []Room{
-		{"library", "Library", 1, 1, 14, 10},
-		{"chapel", "Chapel", 16, 1, 31, 10},
-		{"nursery", "Nursery", 33, 1, 46, 10},
-		{"study", "Study", 1, 12, 14, 21},
-		{"dining", "Dining Hall", 16, 12, 31, 21},
-		{"ballroom", "Ballroom", 33, 12, 46, 21},
-		{"conservatory", "Conservatory", 1, 23, 14, 32},
-		{"entrance", "Entrance Hall", 16, 23, 31, 32},
-		{"kitchen", "Kitchen", 33, 23, 46, 32},
-		{"cellar", "Cellar", 33, 34, 46, 41},
 	}
 	set := func(x, y int, t byte) { m.Tiles[y*m.W+x] = t }
 	for i, r := range m.Rooms {
@@ -117,45 +169,76 @@ func NewManor() *Map {
 			}
 		}
 	}
-	doors := [][4]int{
-		{15, 5, 15, 6},   // Library - Chapel
-		{7, 11, 8, 11},   // Library - Study
-		{7, 22, 8, 22},   // Study - Conservatory
-		{15, 16, 15, 17}, // Study - Dining
-		{23, 11, 24, 11}, // Chapel - Dining
-		{32, 16, 32, 17}, // Dining - Ballroom
-		{23, 22, 24, 22}, // Dining - Entrance
-		{15, 27, 15, 28}, // Conservatory - Entrance
-		{32, 27, 32, 28}, // Entrance - Kitchen
-		{39, 11, 40, 11}, // Ballroom - Nursery
-		{39, 22, 40, 22}, // Ballroom - Kitchen
-		{39, 33, 40, 33}, // Kitchen - Cellar
-	}
-	for _, d := range doors {
-		for y := d[1]; y <= d[3]; y++ {
-			for x := d[0]; x <= d[2]; x++ {
-				set(x, y, TileFloor)
+	room := func(id string) Room {
+		for _, r := range m.Rooms {
+			if r.ID == id {
+				return r
 			}
+		}
+		panic("no room " + id)
+	}
+	// at moves a tile of the base plan into the same place in its room here.
+	at := func(x, y int) (int, int) {
+		for i, b := range base {
+			if b.contains(x, y) {
+				r := m.Rooms[i]
+				return stretch(x, b.X0, b.X1, r.X0, r.X1), stretch(y, b.Y0, b.Y1, r.Y0, r.Y1)
+			}
+		}
+		panic(fmt.Sprintf("base tile %d,%d is in no room", x, y))
+	}
+	center := func(a0, a1 int) int { return (a0 + a1) / 2 }
+
+	// Each door is two tiles wide, centred on the wall the rooms share.
+	for _, d := range [][2]string{
+		{"library", "chapel"}, {"library", "study"}, {"study", "conservatory"},
+		{"study", "dining"}, {"chapel", "dining"}, {"dining", "ballroom"},
+		{"dining", "entrance"}, {"conservatory", "entrance"}, {"entrance", "kitchen"},
+		{"ballroom", "nursery"}, {"ballroom", "kitchen"}, {"kitchen", "cellar"},
+	} {
+		a, b := room(d[0]), room(d[1])
+		if b.X0 < a.X0 || b.Y0 < a.Y0 {
+			a, b = b, a
+		}
+		if a.X1 < b.X0 { // side by side
+			y := center(max(a.Y0, b.Y0), min(a.Y1, b.Y1))
+			set(a.X1+1, y, TileFloor)
+			set(a.X1+1, y+1, TileFloor)
+		} else { // one above the other
+			x := center(max(a.X0, b.X0), min(a.X1, b.X1))
+			set(x, a.Y1+1, TileFloor)
+			set(x+1, a.Y1+1, TileFloor)
 		}
 	}
 
 	for _, h := range [][2]int{{3, 1}, {1, 19}, {17, 20}, {46, 20}, {2, 32}, {46, 24}} {
-		set(h[0], h[1], TileHearth)
-		m.Hearths = append(m.Hearths, tileCenter(h[0], h[1]))
+		x, y := at(h[0], h[1])
+		set(x, y, TileHearth)
+		m.Hearths = append(m.Hearths, tileCenter(x, y))
 	}
 	for _, mi := range [][2]int{{12, 1}, {14, 13}, {31, 2}, {31, 13}, {17, 32}, {46, 5}, {34, 12}, {34, 21}} {
-		set(mi[0], mi[1], TileMirror)
-		m.Mirrors = append(m.Mirrors, tileCenter(mi[0], mi[1]))
+		x, y := at(mi[0], mi[1])
+		set(x, y, TileMirror)
+		m.Mirrors = append(m.Mirrors, tileCenter(x, y))
 	}
 	for _, s := range [][2]int{{5, 4}, {10, 8}, {2, 9}, {13, 5}, {6, 14}, {18, 9}, {40, 4}, {8, 30}, {36, 30}, {37, 39}, {44, 36}, {42, 17}} {
-		m.Spots = append(m.Spots, tileCenter(s[0], s[1]))
+		m.Spots = append(m.Spots, tileCenter(at(s[0], s[1])))
 	}
-	m.Passages = [][2]Vec{
-		{tileCenter(1, 10), tileCenter(46, 10)}, // Library <-> Nursery
-		{tileCenter(1, 23), tileCenter(34, 41)}, // Conservatory <-> Cellar
+	for _, p := range [][4]int{
+		{1, 10, 46, 10}, // Library <-> Nursery
+		{1, 23, 34, 41}, // Conservatory <-> Cellar
+	} {
+		ax, ay := at(p[0], p[1])
+		bx, by := at(p[2], p[3])
+		m.Passages = append(m.Passages, [2]Vec{tileCenter(ax, ay), tileCenter(bx, by)})
 	}
-	m.Altar = Rect{23, 3, 24, 3}
-	m.Table = Rect{21, 15, 26, 18}
+
+	chapel, dining := room("chapel"), room("dining")
+	_, altarY := at(23, 3)
+	ax := center(chapel.X0, chapel.X1)
+	m.Altar = Rect{ax, altarY, ax + 1, altarY}
+	tx, ty := center(dining.X0, dining.X1)-2, center(dining.Y0, dining.Y1)-1
+	m.Table = Rect{tx, ty, tx + 5, ty + 3}
 	for _, r := range []Rect{m.Altar, m.Table} {
 		t := byte(TileAltar)
 		if r == m.Table {
@@ -167,9 +250,10 @@ func NewManor() *Map {
 			}
 		}
 	}
-	m.Spawn = Vec{24, 28}
-	for x := 21; x <= 26; x++ {
-		m.Seats = append(m.Seats, tileCenter(x, 14), tileCenter(x, 19))
+	sx, sy := at(24, 28)
+	m.Spawn = Vec{float64(sx), float64(sy)}
+	for x := m.Table.X0; x <= m.Table.X1; x++ {
+		m.Seats = append(m.Seats, tileCenter(x, m.Table.Y0-1), tileCenter(x, m.Table.Y1+1))
 	}
 	return m
 }

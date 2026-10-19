@@ -47,6 +47,17 @@ type ClientConfig struct {
 	StartWax     float64 `json:"startWax"`
 }
 
+// ClientConfig is what the client needs of the match's current rules. It is
+// sent again when the rules change during a match.
+func (m *Match) ClientConfig() ClientConfig {
+	return ClientConfig{
+		Tick: m.Cfg.Tick, Speed: m.Cfg.Speed, GhostSpeed: m.Cfg.GhostSpeed,
+		HearthRadius: m.Cfg.HearthRadius, SnuffTime: m.Cfg.SnuffTime,
+		SearchTime: m.Cfg.SearchTime, ReadTime: m.Cfg.ReadTime,
+		Relight: m.Cfg.HearthRelight, StartWax: m.Cfg.StartWax,
+	}
+}
+
 type PlayerView struct {
 	ID     string  `json:"id"`
 	X      float64 `json:"x"`
@@ -180,12 +191,7 @@ func (m *Match) StartFor(id string) StartView {
 	}
 	sv := StartView{
 		T: "start", Map: mv, Role: p.Role, Team: p.Team, Words: MirrorWords,
-		Config: ClientConfig{
-			Tick: m.Cfg.Tick, Speed: m.Cfg.Speed, GhostSpeed: m.Cfg.GhostSpeed,
-			HearthRadius: m.Cfg.HearthRadius, SnuffTime: m.Cfg.SnuffTime,
-			SearchTime: m.Cfg.SearchTime, ReadTime: m.Cfg.ReadTime,
-			Relight: m.Cfg.HearthRelight, StartWax: m.Cfg.StartWax,
-		},
+		Config: m.ClientConfig(),
 	}
 	for _, q := range m.Players {
 		sv.Roster = append(sv.Roster, RosterEntry{q.ID, q.Name, q.Color})

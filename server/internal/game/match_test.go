@@ -2,6 +2,8 @@ package game
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -34,34 +36,99 @@ func newTestMatch(t *testing.T, n int) (*Match, *Player, []*Player) {
 // darkSpot is a floor tile in the Cellar, far from every hearth.
 var darkSpot = Vec{40.5, 38.5}
 
+// roomSizes covers the base plan, the limits and some odd sizes.
+var roomSizes = [][2]int{
+	{BaseRoomWidth, BaseRoomHeight}, {MinRoomWidth, MinRoomHeight}, {MaxRoomSize, MaxRoomSize},
+	{17, 13}, {25, 9}, {11, 30},
+}
+
 func TestEveryRoomAndObjectIsReachable(t *testing.T) {
-	mp := NewManor()
-	for _, r := range mp.Rooms {
-		goal := tileCenter((r.X0+r.X1)/2, (r.Y0+r.Y1)/2)
-		if mp.SolidAt(int(goal.X), int(goal.Y)) {
-			goal = tileCenter(r.X0, r.Y1)
+	for _, size := range roomSizes {
+		mp := BuildManor(size[0], size[1])
+		errorf := func(format string, args ...any) {
+			t.Helper()
+			t.Errorf("%dx%d rooms: "+format, append([]any{size[0], size[1]}, args...)...)
 		}
-		if mp.Path(mp.Spawn, goal) == nil {
-			t.Errorf("room %s unreachable", r.Name)
+		reach := func(what string, v Vec, mustBeFloor bool) {
+			t.Helper()
+			if (mustBeFloor && mp.SolidAt(int(v.X), int(v.Y))) || mp.Path(mp.Spawn, v) == nil {
+				errorf("%s at %v unreachable", what, v)
+			}
+		}
+		if mp.SolidAt(int(mp.Spawn.X), int(mp.Spawn.Y)) {
+			errorf("spawn is solid")
+		}
+		for _, r := range mp.Rooms {
+			goal := tileCenter((r.X0+r.X1)/2, (r.Y0+r.Y1)/2)
+			if mp.SolidAt(int(goal.X), int(goal.Y)) {
+				goal = tileCenter(r.X0, r.Y1)
+			}
+			reach("room "+r.Name, goal, true)
+		}
+		for i, h := range mp.Hearths {
+			reach(fmt.Sprint("hearth ", i), h, false)
+		}
+		for i, mi := range mp.Mirrors {
+			reach(fmt.Sprint("mirror ", i), mi, false)
+		}
+		for i, s := range mp.Spots {
+			reach(fmt.Sprint("page spot ", i), s, true)
+		}
+		for i, p := range mp.Passages {
+			reach(fmt.Sprint("passage ", i, " start"), p[0], true)
+			reach(fmt.Sprint("passage ", i, " end"), p[1], true)
+		}
+		reach("altar", mp.Altar.Center(), false)
+		for _, s := range mp.Seats {
+			reach("seat", s, true)
+		}
+		// Hearths and mirrors each need their own tile.
+		marked := 0
+		for _, c := range mp.Tiles {
+			if c == TileHearth || c == TileMirror {
+				marked++
+			}
+		}
+		if want := len(mp.Hearths) + len(mp.Mirrors); marked != want {
+			errorf("%d hearth and mirror tiles, want %d", marked, want)
 		}
 	}
-	for i, h := range mp.Hearths {
-		if mp.Path(mp.Spawn, h) == nil {
-			t.Errorf("hearth %d unreachable", i)
-		}
-	}
-	for i, s := range mp.Spots {
-		if mp.SolidAt(int(s.X), int(s.Y)) || mp.Path(mp.Spawn, s) == nil {
-			t.Errorf("page spot %d unreachable", i)
-		}
-	}
-	for _, s := range mp.Seats {
-		if mp.SolidAt(int(s.X), int(s.Y)) {
-			t.Errorf("seat %v is solid", s)
-		}
-	}
-	if mp.RoomAt(darkSpot) != 9 {
+	if NewManor().RoomAt(darkSpot) != 9 {
 		t.Fatalf("dark spot should be in the cellar")
+	}
+}
+
+func TestBaseRoomSizeIsTheDesignDocPlan(t *testing.T) {
+	mp := NewManor()
+	if mp.W != 48 || mp.H != 43 {
+		t.Fatalf("base manor is %dx%d, want 48x43", mp.W, mp.H)
+	}
+	if mp.Table != (Rect{21, 15, 26, 18}) || mp.Altar != (Rect{23, 3, 24, 3}) || mp.Spawn != (Vec{24, 28}) {
+		t.Fatalf("table %v, altar %v, spawn %v moved", mp.Table, mp.Altar, mp.Spawn)
+	}
+}
+
+func TestLoadConfig(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		p := filepath.Join(dir, "c.json")
+		os.WriteFile(p, []byte(body), 0o644)
+		return p
+	}
+	cfg, err := LoadConfig(write(`{"speed": 6.5, "roomWidth": 20, "roomHeight": 12}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Speed != 6.5 || cfg.RoomWidth != 20 || cfg.RoomHeight != 12 || cfg.GhostSpeed != DefaultConfig().GhostSpeed {
+		t.Fatalf("got speed %v, ghost %v, rooms %dx%d", cfg.Speed, cfg.GhostSpeed, cfg.RoomWidth, cfg.RoomHeight)
+	}
+	if m := NewMatch(cfg, seats(3), 1); m.Map.Rooms[0].X1-m.Map.Rooms[0].X0+1 != 20 {
+		t.Fatalf("match ignored roomWidth")
+	}
+	for _, bad := range []string{`{"sped": 5}`, `{"speed": 0}`, `{"roomWidth": 4}`, `{"roomHeight": 99}`, `{"sandbox": true}`, `{`} {
+		if _, err := LoadConfig(write(bad)); err == nil {
+			t.Errorf("%s: want an error", bad)
+		}
 	}
 }
 
@@ -335,9 +402,18 @@ func TestMirrorShowsHostLagging(t *testing.T) {
 }
 
 func TestBotsPlayWholeMatches(t *testing.T) {
-	for seed := int64(1); seed <= 6; seed++ {
+	for seed := int64(1); seed <= 9; seed++ {
 		cfg := DefaultConfig()
 		cfg.HourSeconds, cfg.Discuss, cfg.Vote = 20, 2, 3
+		// Seeds 7 and 8 play in the smallest and the biggest manor, seed 9 fast.
+		switch seed {
+		case 7:
+			cfg.RoomWidth, cfg.RoomHeight = MinRoomWidth, MinRoomHeight
+		case 8:
+			cfg.RoomWidth, cfg.RoomHeight = MaxRoomSize, MaxRoomSize
+		case 9:
+			cfg.Speed, cfg.GhostSpeed = 12, 15 // fast enough to overshoot without steer
+		}
 		var s []Seat
 		for i := 0; i < 8; i++ {
 			s = append(s, Seat{ID: fmt.Sprintf("b%d", i), Name: fmt.Sprintf("Bot%d", i), Color: "#abc", Bot: true})
@@ -356,5 +432,109 @@ func TestBotsPlayWholeMatches(t *testing.T) {
 			t.Fatalf("seed %d: match never ended", seed)
 		}
 		t.Logf("seed %d: %s won after %.0fs with %d guest deaths: %s", seed, m.Winner, float64(ticks)*cfg.Tick, m.deaths, m.WinReason)
+	}
+}
+
+func TestSandboxSoloMatchNeverEnds(t *testing.T) {
+	for _, role := range []Role{RoleGuest, RoleHost} {
+		cfg := DefaultConfig()
+		cfg.Sandbox, cfg.Grace = true, 0
+		s := seats(1)
+		s[0].Role = role
+		m := NewMatch(cfg, s, 1)
+		if got := m.Players[0].Role; got != role {
+			t.Fatalf("forced role %s, got %s", role, got)
+		}
+		// Two whole nights: past every ending, including dawn.
+		for i := 0; i < int(2*float64(cfg.NightHours)*cfg.HourSeconds/cfg.Tick); i++ {
+			m.Tick()
+		}
+		if m.Phase == PhaseEnded {
+			t.Fatalf("sandbox match as %s ended: %s", role, m.WinReason)
+		}
+		if h := m.Hour(); h >= cfg.NightHours {
+			t.Fatalf("sandbox clock passed dawn: hour %d", h)
+		}
+	}
+}
+
+func TestForcedRolesMakeOtherSeatsGuests(t *testing.T) {
+	s := seats(9)
+	s[0].Role = RoleGuest
+	m := NewMatch(DefaultConfig(), s, 1)
+	for _, p := range m.Players {
+		if p.Role != RoleGuest {
+			t.Fatalf("%s is %s, want guest", p.ID, p.Role)
+		}
+	}
+}
+
+// Bots must reach their waypoints at any configured speed: a step longer
+// than the arrival window used to make them overshoot and jitter forever.
+func TestBotsArriveAtAnySpeed(t *testing.T) {
+	for _, speed := range []float64{2, 4, 9, 15, 25} {
+		for _, ghost := range []bool{false, true} {
+			cfg := DefaultConfig()
+			cfg.Speed, cfg.GhostSpeed = speed, speed
+			m := NewMatch(cfg, seats(3), 1)
+			p := m.Players[0]
+			p.brain = &brain{}
+			p.Ghost = ghost
+			goal := tileCenter(m.Map.Rooms[0].X0+1, m.Map.Rooms[0].Y0+2) // the Library
+			m.botSetGoal(p, goal)
+			p.brain.purpose = "test"
+			limit := int(100/(speed*cfg.Tick)) + 100
+			for i := 0; i < limit && len(p.brain.path) > 0; i++ {
+				p.botDir = Vec{}
+				m.botFollow(p, cfg.Tick)
+				m.move(p, cfg.Tick)
+			}
+			if len(p.brain.path) > 0 || p.Pos.Dist(goal) > 0.2 {
+				t.Errorf("speed %v ghost %v: bot stuck at %v, %d waypoints left, goal %v", speed, ghost, p.Pos, len(p.brain.path), goal)
+			}
+		}
+	}
+}
+
+func TestSnuffAndKillAreHeardNearby(t *testing.T) {
+	m, host, guests := newTestMatch(t, 5)
+	victim, near, far := guests[0], guests[1], guests[2]
+	victim.Pos = darkSpot
+	host.Pos = darkSpot.Add(Vec{0.8, 0})
+	near.Pos = darkSpot.Add(Vec{-6, 0}) // in the cellar too, out of the light
+	far.Pos = m.Map.Spawn
+	guests[3].Pos = m.Map.Spawn
+	m.TakeEvents()
+
+	heard := func(name string) map[string]bool {
+		got := map[string]bool{}
+		for _, e := range m.TakeEvents() {
+			if e.Kind == "sound" && e.Text == name {
+				for _, id := range e.To {
+					got[id] = true
+				}
+			}
+		}
+		return got
+	}
+	m.SetHold(host.ID, "snuff", true)
+	for i := 0; i < int(m.Cfg.SnuffTime/m.Cfg.Tick)+2; i++ {
+		m.Tick()
+	}
+	m.SetHold(host.ID, "snuff", false)
+	for _, name := range []string{"snuff", "kill"} {
+		if name == "kill" {
+			near.Lit = false // keep the victim in the dark
+			if msg := m.Press(host.ID, "kill"); msg != "" {
+				t.Fatalf("kill failed: %s", msg)
+			}
+		}
+		got := heard(name)
+		if !got[host.ID] || !got[victim.ID] || !got[near.ID] {
+			t.Errorf("%s: host, victim and the guest nearby should hear it, got %v", name, got)
+		}
+		if got[far.ID] {
+			t.Errorf("%s: a guest across the manor should not hear it", name)
+		}
 	}
 }

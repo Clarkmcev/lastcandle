@@ -1,5 +1,12 @@
 package game
 
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+)
+
 // Config holds every tuning value from the design doc's Balancing section.
 // Times are in seconds, distances in tiles.
 type Config struct {
@@ -18,8 +25,13 @@ type Config struct {
 	ShareRange   float64
 	ShareBonus   float64
 
-	Speed      float64
+	Speed      float64 // tiles per second
 	GhostSpeed float64
+
+	// Floor tiles inside each side room of the manor. The middle column of
+	// rooms is 2 tiles wider and the cellar 2 tiles shorter.
+	RoomWidth  int
+	RoomHeight int
 
 	SnuffRange float64
 	SnuffTime  float64
@@ -48,10 +60,15 @@ type Config struct {
 	MirrorRange    float64
 	MirrorWordTime float64
 	KnockRange     float64
+	HearRange      float64 // how far away a snuff or a kill can be heard
 	SmokeTime      float64
 	DripTime       float64
 	DripEvery      float64
 	FarCandleSight float64 // a lit candle can be seen from this far in the dark
+
+	// Sandbox is developer mode: the match never ends, so one person can
+	// walk the manor and try every action alone.
+	Sandbox bool `json:"-"`
 }
 
 func DefaultConfig() Config {
@@ -69,9 +86,11 @@ func DefaultConfig() Config {
 		ShareRange:     1.5,
 		ShareBonus:     1.3,
 		Speed:          4,
+		RoomWidth:      BaseRoomWidth,
+		RoomHeight:     BaseRoomHeight,
 		GhostSpeed:     5,
 		SnuffRange:     1.2,
-		SnuffTime:      1.5,
+		SnuffTime:      0.6,
 		SnuffCD:        25,
 		SnuffShock:     3,
 		KillRange:      1.2,
@@ -85,7 +104,7 @@ func DefaultConfig() Config {
 		ReadTime:       12,
 		SeanceCost:     60,
 		Gather:         3,
-		Discuss:        50,
+		Discuss:        30,
 		Vote:           15,
 		Result:         5,
 		EctoPerHour:    6,
@@ -94,6 +113,7 @@ func DefaultConfig() Config {
 		MirrorRange:    2,
 		MirrorWordTime: 30,
 		KnockRange:     16,
+		HearRange:      9,
 		SmokeTime:      20,
 		DripTime:       45,
 		DripEvery:      0.5,
@@ -107,4 +127,39 @@ func HostCount(players int) int {
 		return 2
 	}
 	return 1
+}
+
+// LoadConfig reads a JSON config file over the defaults. Keys are the
+// Config field names in camelCase, e.g. {"speed": 5, "roomWidth": 18};
+// keys that are left out keep their default.
+func LoadConfig(path string) (Config, error) {
+	cfg := DefaultConfig()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return cfg, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
+		return cfg, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return cfg, fmt.Errorf("%s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// Validate rejects values the game cannot run with.
+func (c Config) Validate() error {
+	switch {
+	case c.Speed <= 0 || c.GhostSpeed <= 0:
+		return fmt.Errorf("speed and ghostSpeed must be above 0")
+	case c.RoomWidth < MinRoomWidth || c.RoomWidth > MaxRoomSize:
+		return fmt.Errorf("roomWidth must be %d to %d tiles", MinRoomWidth, MaxRoomSize)
+	case c.RoomHeight < MinRoomHeight || c.RoomHeight > MaxRoomSize:
+		return fmt.Errorf("roomHeight must be %d to %d tiles", MinRoomHeight, MaxRoomSize)
+	case c.Tick <= 0 || c.HourSeconds <= 0:
+		return fmt.Errorf("tick and hourSeconds must be above 0")
+	}
+	return nil
 }
