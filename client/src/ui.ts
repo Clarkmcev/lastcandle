@@ -1,4 +1,12 @@
+<<<<<<< Updated upstream
 import type { ChatMsg, EventMsg, Snapshot } from "./protocol";
+=======
+import type { ChatMsg, EventMsg, MeetingView, Snapshot } from "./protocol";
+import { Landing } from "./landing";
+import { LoadingArt } from "./loading";
+import { type IconKind, ResultArt, RevealArt, goalIcon } from "./reveal";
+import { playSong, setMusic, songName } from "./music";
+>>>>>>> Stashed changes
 import type { Session } from "./session";
 import * as sfx from "./sfx";
 import { walkStrip } from "./sprites";
@@ -23,7 +31,55 @@ export class UI {
   private lastPhase = "";
   private held = new Set<string>();
 
+<<<<<<< Updated upstream
   constructor(private connect: (room: string, name: string) => Session) {
+=======
+  private landing = new Landing($<HTMLCanvasElement>("landing"));
+  private loadingArt = new LoadingArt($<HTMLCanvasElement>("loadingCanvas"));
+  private loadingTimer = 0;
+  private revealArt?: RevealArt;
+  private resultArt?: ResultArt;
+  private resultShown = "";
+  private where: "home" | "lobby" | "game" = "home";
+  private musicOn = localStorage.getItem("lastcandle:music") !== "off";
+  private soundAllowed = false; // browsers allow sound after the first click or key
+
+  // The character to ask for when joining: the last one picked in a lobby.
+  private character = (() => {
+    const saved = localStorage.getItem("lastcandle:color");
+    return CHARACTERS.some((c) => c.color === saved) ? saved! : CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)].color;
+  })();
+
+  constructor(private connect: (room: string, name: string, color: string) => Session) {
+    this.landing.setActive(true);
+    this.updateMusic();
+    const allowSound = () => {
+      this.soundAllowed = true;
+      this.updateMusic();
+    };
+    document.addEventListener("pointerdown", allowSound, { once: true });
+    document.addEventListener("keydown", allowSound, { once: true });
+    $("leaveLobby").onclick = () => this.leave();
+    $("leaveGame").onclick = () => this.leave();
+    $("stopGame").onclick = () => this.stopGame();
+    $("menuSettings").onclick = () => this.openSettings();
+    $("gameSettings").onclick = () => this.openSettings();
+    $("settingsClose").onclick = () => this.closeSettings();
+    // Clicking the dark backdrop closes it. (No value is returned: an onclick
+    // that returns false would cancel clicks inside, such as on a checkbox.)
+    $("settings").onclick = (e) => {
+      if (e.target === $("settings")) this.closeSettings();
+    };
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || e.repeat) return;
+      if (this.settingsOpen()) this.closeSettings();
+      else if (e.target instanceof HTMLInputElement) return;
+      else if (this.where === "game" && $("words").classList.contains("hidden")) this.openSettings();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key.toLowerCase() === "m" && !e.repeat && !(e.target instanceof HTMLInputElement)) this.toggleMusic();
+    });
+>>>>>>> Stashed changes
     const name = $<HTMLInputElement>("name");
     name.value = localStorage.getItem("lastcandle:name") ?? "";
     const code = location.hash.slice(1).toUpperCase();
@@ -136,19 +192,64 @@ export class UI {
     this.lastPhase = "";
     $("chatLog").innerHTML = "";
     $("ghostLog").innerHTML = "";
+<<<<<<< Updated upstream
+=======
+    this.showLoading(() => this.reveal());
+  }
+
+  // The role card shown once the night has loaded: your character in
+  // pixel art, framed for the part you play (reveal.ts), with your goals.
+  private reveal() {
+    const s = this.session!;
+>>>>>>> Stashed changes
     const host = s.isHost;
-    $("reveal").innerHTML = host
-      ? `<h1 class="red">You are the Host</h1>
-         <p>You made a pact with the manor. Snuff out candles, kill guests in the dark, and keep the hearths cold.</p>
-         <p class="small">Hold <b>Q</b> beside a guest to snuff their candle · <b>Space</b> to kill in darkness · <b>1</b> draft · <b>2</b> cold hearth · <b>E</b> on a purple passage</p>`
-      : `<h1>You are a Guest</h1>
-         <p>Survive until dawn, find the four pages of the will, or lock the Host in the cellar. Keep your candle fed.</p>
-         <p class="small"><b>WASD</b> move · <b>E</b> interact (hold) · <b>R</b> report a body · <b>G</b> séance at the dining table</p>`;
+    const me = s.roster.get(s.me);
+    const color = me?.color ?? CHARACTERS[0].color;
+    const who = CHARACTERS.find((c) => c.color === color);
+    const goals: [IconKind, string][] = host
+      ? [
+          ["snuff", "Hold <b>Q</b> beside a guest to blow out their candle"],
+          ["dagger", "<b>Space</b> kills a guest left alone in the dark"],
+          ["cold", "<b>1</b> a cold draft · <b>2</b> put a hearth out"],
+          ["door", "<b>E</b> on a purple panel: a servant passage"],
+        ]
+      : [
+          ["candle", "Keep your candle fed at the hearths"],
+          ["page", "Find the four pages of the will and read it at the altar"],
+          ["key", "Vote the Host into the cellar"],
+          ["dawn", "Or simply survive until dawn"],
+        ];
+    $("reveal").innerHTML = `<div class="revealWrap"><div class="revealCard ${host ? "host" : "guest"}">
+        <canvas class="revealArt"></canvas>
+        <div class="revealText">
+          <div class="small">${esc(who?.name ?? "")} · ${esc(me?.name ?? "")}</div>
+          <h1 class="${host ? "red" : ""}">${host ? "You are the Host" : "You are a Guest"}</h1>
+          <p class="revealLine">${
+            host
+              ? "You made a pact with the manor. Tonight, its hunger is yours. Let no one see you do it."
+              : "A dinner party, a storm, and one guest at the table who is not what they seem."
+          }</p>
+          <ul class="goals">${goals.map(([k, t]) => `<li><img src="${goalIcon(k)}" alt=""><span>${t}</span></li>`).join("")}</ul>
+          <p class="small">${host ? "<b>WASD</b> or the mouse to move · <b>R</b> report · <b>Esc</b> settings" : "<b>WASD</b> or the mouse to move · <b>E</b> interact (hold) · <b>R</b> report a body · <b>G</b> séance"}</p>
+        </div>
+      </div>
+      <p class="revealGo">Click or press a key to begin</p></div>`;
+    this.revealArt?.stop();
+    this.revealArt = new RevealArt($("reveal").querySelector("canvas")!);
+    this.revealArt.show(color, host);
     show("reveal", true);
-    setTimeout(() => show("reveal", false), 6000);
-    $("reveal").onclick = () => show("reveal", false);
+    const close = () => {
+      clearTimeout(timer);
+      document.removeEventListener("keydown", close);
+      this.revealArt?.stop();
+      show("reveal", false);
+    };
+    const timer = setTimeout(close, 12000);
+    $("reveal").onclick = close;
+    setTimeout(() => document.addEventListener("keydown", close, { once: true }), 400);
     $("roleCard").innerHTML = host ? '<span class="red">Host</span>' : "Guest";
-    sfx.bell();
+    if (host) sfx.sting();
+    else sfx.bell();
   }
 
   private onSnap() {
@@ -288,12 +389,35 @@ export class UI {
 
   // ----------------------------------------------------------- meetings
 
+  // At the end of a meeting: a picture of what the vote did (reveal.ts).
+  private renderVerdict(mt: MeetingView, living: string[], id: string) {
+    const result = mt.stage === "result";
+    show("meetingResult", result);
+    document.querySelector<HTMLElement>(".meetingBody")!.classList.toggle("hidden", result);
+    if (!result || this.resultShown === id) return;
+    this.resultShown = id;
+    const s = this.session!;
+    this.resultArt?.stop();
+    this.resultArt = new ResultArt(document.querySelector<HTMLCanvasElement>(".resultArt")!);
+    const locked = mt.locked ? s.color(mt.locked) : null;
+    // The table shows everyone still alive except the one taken away.
+    this.resultArt.show(locked, living.filter((p) => p !== mt.locked).map((p) => s.color(p)));
+    $("resultCaption").textContent = mt.locked
+      ? mt.locked === s.me
+        ? "You are dragged down to the cellar. The door locks behind you."
+        : `${s.name(mt.locked)} is dragged down to the cellar. The door locks behind them.`
+      : "No one is locked in the cellar. Suspicion lingers over the table.";
+    $("resultAfter").textContent =
+      mt.reason === "dinner" ? "As the plates are cleared, somewhere in the manor a hearth goes cold." : mt.locked ? "Was it the Host? The cellar keeps its secrets." : "";
+  }
+
   private renderMeeting(snap: Snapshot) {
     const s = this.session!;
     const mt = snap.meeting;
     show("meeting", !!mt);
     if (!mt) {
       this.lastMeeting = "";
+      this.resultArt?.stop();
       return;
     }
     const id = `${mt.reason}:${mt.caller}:${mt.body}`;
@@ -317,6 +441,7 @@ export class UI {
     $("meetingTimer").textContent = mt.stage === "result" ? "" : `${mt.t}s`;
 
     const living = [...snap.players.filter((p) => !p.ghost).map((p) => p.id), ...(snap.you.alive ? [s.me] : [])];
+    this.renderVerdict(mt, living, id);
     const canVote = mt.stage === "vote" && snap.you.alive && !mt.you;
     const key = [mt.stage, mt.voted.join(), mt.you, living.join(), JSON.stringify(mt.tally ?? {})].join("|");
     if (key !== this.meetingKey) {

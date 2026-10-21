@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -16,29 +17,72 @@ import (
 	"lastcandle/server/internal/game"
 )
 
+// Default caps on what one server runs at once. Every running match is
+// simulated 20 times a second, so too many of them starve the CPU.
+const (
+	DefaultMaxRooms   = 60
+	DefaultMaxMatches = 20
+)
+
 // Hub owns every room, keyed by its join code.
 type Hub struct {
 	cfg     game.Config
 	origins []string
 	dev     bool // allow sandbox matches (developer mode)
 
-	mu    sync.Mutex
-	rooms map[string]*Room
+	mu         sync.Mutex
+	rooms      map[string]*Room
+	matches    int // matches running now
+	maxRooms   int // 0: no limit
+	maxMatches int // 0: no limit
 }
 
 func NewHub(cfg game.Config, origins []string) *Hub {
-	return &Hub{cfg: cfg, origins: origins, rooms: map[string]*Room{}}
+	return &Hub{
+		cfg: cfg, origins: origins, rooms: map[string]*Room{},
+		maxRooms: DefaultMaxRooms, maxMatches: DefaultMaxMatches,
+	}
 }
 
 // EnableDev lets room owners start sandbox matches.
 func (h *Hub) EnableDev() { h.dev = true }
 
+// SetLimits caps how many rooms can be open and how many matches can run at
+// once; 0 means no limit.
+func (h *Hub) SetLimits(rooms, matches int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.maxRooms, h.maxMatches = rooms, matches
+}
+
+// acquireMatch reserves a slot for a match about to start, or reports that
+// the server is already running as many as it may.
+func (h *Hub) acquireMatch() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.maxMatches > 0 && h.matches >= h.maxMatches {
+		return false
+	}
+	h.matches++
+	return true
+}
+
+func (h *Hub) releaseMatch() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.matches--
+}
+
 // Codes skip letters that are easy to misread aloud (I, O, L).
 const codeLetters = "ABCDEFGHJKMNPQRSTUVWXYZ"
 
+// newRoom opens a room, or returns nil when the server has too many.
 func (h *Hub) newRoom() *Room {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.maxRooms > 0 && len(h.rooms) >= h.maxRooms {
+		return nil
+	}
 	for {
 		b := make([]byte, 4)
 		rand.Read(b)
@@ -79,7 +123,12 @@ func randomHex(n int) string {
 func (h *Hub) Handler(staticDir string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", h.ServeWS)
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		h.mu.Lock()
+		rooms, matches := len(h.rooms), h.matches
+		h.mu.Unlock()
+		fmt.Fprintf(w, "ok rooms=%d matches=%d", rooms, matches)
+	})
 	if staticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(staticDir)))
 	}
@@ -99,7 +148,10 @@ func (h *Hub) ServeWS(w http.ResponseWriter, req *http.Request) {
 
 	var r *Room
 	if code := q.Get("room"); code == "" {
-		r = h.newRoom()
+		if r = h.newRoom(); r == nil {
+			c.closeWith("The manor is full right now. Try again in a few minutes.")
+			return
+		}
 	} else if r = h.room(code); r == nil {
 		c.closeWith("No room with code " + strings.ToUpper(code))
 		return

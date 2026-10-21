@@ -26,6 +26,8 @@ func main() {
 	origins := flag.String("origins", "localhost:*,127.0.0.1:*", "extra allowed WebSocket origins, comma separated")
 	dev := flag.Bool("dev", false, "developer mode: open the client with ?dev to start an empty sandbox match")
 	configPath := flag.String("config", "lastcandle.json", "JSON game config (speed, room size, …); defaults are used if the file is missing")
+	maxRooms := flag.Int("max-rooms", server.DefaultMaxRooms, "most rooms open at once, 0 for no limit (env LASTCANDLE_MAX_ROOMS)")
+	maxMatches := flag.Int("max-matches", server.DefaultMaxMatches, "most matches running at once, 0 for no limit (env LASTCANDLE_MAX_MATCHES)")
 	portFile := flag.String("portfile", "", "write the port actually used to this file (the Vite dev proxy reads it)")
 	flag.Parse()
 
@@ -44,6 +46,13 @@ func main() {
 	}
 	if v, err := strconv.ParseFloat(os.Getenv("LASTCANDLE_DISCUSS_SECONDS"), 64); err == nil && v > 0 {
 		cfg.Discuss = v
+	}
+
+	if v, err := strconv.Atoi(os.Getenv("LASTCANDLE_MAX_ROOMS")); err == nil && v >= 0 {
+		*maxRooms = v
+	}
+	if v, err := strconv.Atoi(os.Getenv("LASTCANDLE_MAX_MATCHES")); err == nil && v >= 0 {
+		*maxMatches = v
 	}
 
 	staticDir := ""
@@ -70,6 +79,8 @@ func main() {
 	}
 
 	hub := server.NewHub(cfg, strings.Split(*origins, ","))
+	hub.SetLimits(*maxRooms, *maxMatches)
+	log.Printf("limits: %d rooms, %d running matches (0: no limit)", *maxRooms, *maxMatches)
 	if *dev {
 		hub.EnableDev()
 		log.Printf("developer mode: add ?dev to the client URL for an empty test match")

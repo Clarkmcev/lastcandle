@@ -106,7 +106,7 @@ func DefaultConfig() Config {
 		Gather:         3,
 		Discuss:        30,
 		Vote:           15,
-		Result:         5,
+		Result:         8, // long enough to see what the vote did
 		EctoPerHour:    6,
 		RestlessChance: 0.25,
 		MirrorLagTicks: 10,
