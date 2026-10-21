@@ -15,6 +15,20 @@ export const FRAMES_PER_DIR = IDLE_FRAMES + WALK_FRAMES;
 // Same order as the server's palette in server/internal/server/room.go.
 const PALETTE = ["#e04848", "#3f7fe0", "#3fae5a", "#e0c33f", "#9b5de5", "#f08a2c", "#e8e4dc", "#f06fb0", "#2fb8b0", "#9a6a3a"];
 
+// The characters players choose from, by colour (the server's botNames).
+export const CHARACTERS = [
+  ["The Colonel", "Home from the colonies with a cap, a moustache and a great many stories."],
+  ["The Gentleman", "Top hat, gloves and a fortune nobody can quite account for."],
+  ["The Widow", "Behind the black lace veil, she has buried two husbands already."],
+  ["The Poet", "Wild hair, a long scarf, and verses about death he reads to anyone."],
+  ["The Physician", "Spectacles, a bowler and a bag of remedies, some of them poisons."],
+  ["The Governess", "Prim collar, tight bun, and she knows every secret of the nursery."],
+  ["The Clergyman", "A wide hat, a white collar, and a prayer for every occasion."],
+  ["The Heiress", "Under the bonnet, the one the will would make very rich indeed."],
+  ["The Inventor", "Goggles up, pockets full of springs and half-finished machines."],
+  ["The Gambler", "Flat cap, quick hands, and he has wagered on how the night ends."],
+].map(([name, blurb], i) => ({ color: PALETTE[i], name, blurb }));
+
 type Costume = "colonel" | "tophat" | "widow" | "poet" | "physician" | "governess" | "clergyman" | "heiress" | "inventor" | "gambler";
 const COSTUMES: Costume[] = ["colonel", "tophat", "widow", "poet", "physician", "governess", "clergyman", "heiress", "inventor", "gambler"];
 const SKIN = ["#e8b48f", "#f1c7a3", "#d9a07a", "#c58b62", "#f3d0b0", "#e0a982", "#a8704c", "#f5d6bd", "#cf9a73", "#8d5b3d"];
@@ -309,5 +323,57 @@ export function walkStrip(color: string, scale = 3): string {
   ctx.drawImage(src, sx, 0, FRAME_W * WALK_FRAMES, FRAME_H, 0, 0, cv.width, cv.height);
   const url = cv.toDataURL();
   walkStrips.set(key, url);
+  return url;
+}
+
+export type PageKind = "laid" | "carried" | "missing";
+const pageIcons = new Map<PageKind, string>();
+
+// A page of the will as a 12×15 pixel icon for the HUD, drawn at 3×:
+// sealed with red wax once it is on the altar, bright while carried, a
+// faint outline while it is still lost somewhere in the manor.
+export function pageIcon(kind: PageKind): string {
+  const cached = pageIcons.get(kind);
+  if (cached) return cached;
+  const W = 12, H = 15, S = 3;
+  const c = document.createElement("canvas");
+  c.width = W * S;
+  c.height = H * S;
+  const g = c.getContext("2d")!;
+  const px = (x: number, y: number, w: number, h: number, color: string) => {
+    g.fillStyle = color;
+    g.fillRect(x * S, y * S, w * S, h * S);
+  };
+  if (kind === "missing") {
+    for (let i = 0; i < W - 3; i += 2) px(i, 0, 1, 1, "#6a5a40");
+    for (let i = 0; i < H; i += 2) px(0, i, 1, 1, "#6a5a40");
+    for (let i = 4; i < H; i += 2) px(W - 1, i, 1, 1, "#6a5a40");
+    for (let i = 1; i < W; i += 2) px(i, H - 1, 1, 1, "#6a5a40");
+    px(W - 3, 1, 1, 1, "#6a5a40");
+    px(W - 2, 2, 1, 1, "#6a5a40");
+  } else {
+    const paper = kind === "carried" ? "#f4ead0" : "#e2d4b0";
+    px(0, 0, W - 3, H, "#8a7650");
+    px(0, 3, W, H - 3, "#8a7650");
+    px(1, 1, W - 4, H - 2, paper);
+    px(1, 3, W - 2, H - 4, paper);
+    // The folded corner.
+    px(W - 3, 1, 1, 2, "#c8b48a");
+    px(W - 2, 2, 1, 1, "#c8b48a");
+    px(W - 3, 0, 1, 1, "#8a7650");
+    px(W - 2, 1, 1, 1, "#8a7650");
+    px(W - 1, 2, 1, 1, "#8a7650");
+    // Lines of handwriting.
+    for (const [y, w] of [[4, 7], [6, 8], [8, 6], [10, 7]] as const) px(2, y, w, 1, "#8a7a55");
+    px(2, 12, 4, 1, "#5a4a30");
+    if (kind === "laid") {
+      px(7, 10, 3, 3, "#a82a2a");
+      px(6, 11, 5, 1, "#a82a2a");
+      px(8, 9, 1, 5, "#a82a2a");
+      px(7, 10, 1, 1, "#d85a4a");
+    }
+  }
+  const url = c.toDataURL();
+  pageIcons.set(kind, url);
   return url;
 }

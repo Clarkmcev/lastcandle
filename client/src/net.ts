@@ -8,9 +8,9 @@ export class Net {
   private handlers = new Map<string, Handler[]>();
   onClose: (reason: string) => void = () => {};
 
-  constructor(room: string, name: string, token: string) {
+  constructor(room: string, name: string, token: string, color: string) {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const q = new URLSearchParams({ room, name, token });
+    const q = new URLSearchParams({ room, name, token, color });
     this.ws = new WebSocket(`${proto}://${location.host}/ws?${q}`);
     this.ws.onmessage = (e) => {
       const msg = JSON.parse(e.data) as ServerMsg;

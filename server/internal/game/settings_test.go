@@ -1,6 +1,9 @@
 package game
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestApplySettings(t *testing.T) {
 	cfg := DefaultConfig()
@@ -61,5 +64,33 @@ func TestSettingsChangeAMatchInProgress(t *testing.T) {
 	}
 	if m.Cfg.RoomWidth != BaseRoomWidth {
 		t.Fatal("the manor is already built; its size must wait for the next match")
+	}
+}
+
+func TestDinnerScheduleAndWitchingHourFollowSettings(t *testing.T) {
+	cfg := DefaultConfig()
+	if err := cfg.ApplySettings(map[string]float64{"firstDinner": 3, "dinnerEvery": 3, "dinners": 2, "witchingHour": 2}); err != nil {
+		t.Fatal(err)
+	}
+	m := NewMatch(cfg, seats(4), 1)
+	var dinners []int
+	for h := 0; h < cfg.NightHours; h++ {
+		if m.isDinner(h) {
+			dinners = append(dinners, h)
+		}
+	}
+	if fmt.Sprint(dinners) != "[3 6]" {
+		t.Fatalf("dinners at hours %v, want 3 and 6 (1 AM and 4 AM)", dinners)
+	}
+	m.Clock = 2.5 * cfg.HourSeconds
+	if !m.Witching() {
+		t.Fatal("the Witching Hour should now be midnight")
+	}
+	if clockTime(2) != "12 AM" || clockTime(5) != "3 AM" || clockTime(0) != "10 PM" {
+		t.Fatalf("clock names: %s %s %s", clockTime(0), clockTime(2), clockTime(5))
+	}
+	cfg.Dinners = 0
+	if m := NewMatch(cfg, seats(4), 1); m.isDinner(3) {
+		t.Fatal("no dinners when dinners is 0")
 	}
 }

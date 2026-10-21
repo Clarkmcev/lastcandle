@@ -35,6 +35,10 @@ export class Session {
   snap?: Snapshot;
   end?: EndMsg;
   remotes = new Map<string, Remote>();
+  // The loading screen is up (no moving yet); mapBuilt is set by the scene
+  // once this match's manor is painted.
+  loading = false;
+  mapBuilt = false;
 
   // Predicted position of our own character, and where it was one step ago.
   pos: Vec = { x: 0, y: 0 };
@@ -48,9 +52,9 @@ export class Session {
   onChat: (c: ChatMsg) => void = () => {};
   onError: (text: string) => void = () => {};
 
-  constructor(room: string, name: string) {
+  constructor(room: string, name: string, color: string) {
     const token = sessionStorage.getItem(`lastcandle:${room.toUpperCase()}`) ?? "";
-    this.net = new Net(room, name, token);
+    this.net = new Net(room, name, token, color);
     this.net.on("welcome", (m) => {
       this.me = m.id;
       this.code = m.code;
@@ -74,7 +78,12 @@ export class Session {
       this.end = undefined;
       this.remotes.clear();
       this.pending = [];
+      this.mapBuilt = false;
       this.emit("start");
+    });
+    // The owner changed the rules mid-match: predict with the new ones.
+    this.net.on("config", (m) => {
+      if (this.start) this.start.config = m.config;
     });
     this.net.on("snap", (m) => this.onSnap(m));
     this.net.on("end", (m) => {

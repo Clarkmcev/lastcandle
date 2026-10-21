@@ -112,6 +112,7 @@ export interface Snapshot {
   ack: number;
   phase: "play" | "meeting" | "ended";
   hour: number;
+  witching?: boolean; // the Witching Hour (its time is a setting)
   minute: number;
   grace: boolean;
   you: YouView;
@@ -145,6 +146,28 @@ export interface LobbyMsg {
   players: LobbyPlayer[];
   min: number;
   max: number;
+  // The rules on the settings page (server/internal/game/settings.go).
+  settings: SettingSpec[];
+  values: Record<string, number>;
+  defaults: Record<string, number>;
+  characters?: { color: string; name: string }[];
+}
+
+export interface SettingSpec {
+  key: string;
+  label: string;
+  group: string;
+  unit?: string;
+  min: number;
+  max: number;
+  step: number;
+  live: boolean; // false: waits for the next match
+}
+
+// The rules changed during a match.
+export interface ConfigMsg {
+  t: "config";
+  config: ClientConfig;
 }
 
 export interface EndMsg {
@@ -156,7 +179,7 @@ export interface EndMsg {
 
 export interface EventMsg {
   t: "event";
-  kind: "toast" | "knock" | "draft" | "snuffed" | "killed" | "locked" | "restless";
+  kind: "toast" | "knock" | "draft" | "snuffed" | "killed" | "locked" | "restless" | "sound"; // sound: text names it (snuff, kill)
   text?: string;
   x?: number;
   y?: number;
@@ -183,4 +206,4 @@ export interface ErrorMsg {
   text: string;
 }
 
-export type ServerMsg = WelcomeMsg | LobbyMsg | StartMsg | Snapshot | EndMsg | EventMsg | ChatMsg | ErrorMsg;
+export type ServerMsg = WelcomeMsg | LobbyMsg | StartMsg | Snapshot | EndMsg | EventMsg | ChatMsg | ErrorMsg | ConfigMsg;

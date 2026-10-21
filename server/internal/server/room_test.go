@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -154,8 +155,6 @@ func TestOwnerChangesRulesMidMatch(t *testing.T) {
 		t.Fatalf("the settings page should show the new speed, got %v", v)
 	}
 }
-<<<<<<< Updated upstream
-=======
 
 func TestChoosingCharacters(t *testing.T) {
 	hub := NewHub(game.DefaultConfig(), []string{"*"})
@@ -309,4 +308,3 @@ func TestMatchLimit(t *testing.T) {
 		t.Fatalf("one match should be running, the hub counts %d", n)
 	}
 }
->>>>>>> Stashed changes

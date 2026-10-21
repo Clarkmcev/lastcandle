@@ -157,7 +157,7 @@ func (h *Hub) ServeWS(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	reply := make(chan string, 1)
-	r.join <- joinReq{client: c, name: q.Get("name"), token: q.Get("token"), reply: reply}
+	r.join <- joinReq{client: c, name: q.Get("name"), color: q.Get("color"), token: q.Get("token"), reply: reply}
 	if msg := <-reply; msg != "" {
 		c.closeWith(msg)
 		return

@@ -70,6 +70,67 @@ export class World {
     return { x, y };
   }
 
+  // walkable reports whether a body can stand at (x, y).
+  walkable(x: number, y: number) {
+    return !this.blocked(x, y);
+  }
+
+  // A straight walk from a to b that never touches a wall.
+  private clearLine(a: Vec, b: Vec) {
+    const n = Math.ceil(dist(a, b) / 0.1);
+    for (let i = 1; i <= n; i++) if (this.blocked(a.x + ((b.x - a.x) * i) / n, a.y + ((b.y - a.y) * i) / n)) return false;
+    return true;
+  }
+
+  // path finds a walk from a to b for click-to-move: a breadth-first search
+  // over tiles (as the bots use), then straightened wherever a direct line
+  // is clear. Clicking a solid thing (a hearth, the table) walks next to it.
+  // Returns null if b cannot be reached.
+  path(a: Vec, b: Vec): Vec[] | null {
+    const sx = Math.floor(a.x), sy = Math.floor(a.y);
+    const gx = Math.floor(b.x), gy = Math.floor(b.y);
+    if (!this.inside(gx, gy)) return null;
+    const solidGoal = this.solidAt(gx, gy);
+    const goal = (x: number, y: number) => (solidGoal ? Math.abs(x - gx) + Math.abs(y - gy) === 1 : x === gx && y === gy);
+    const prev = new Int32Array(this.w * this.h).fill(-2);
+    const start = sy * this.w + sx;
+    prev[start] = -1;
+    const queue = [start];
+    let end = -1;
+    for (let qi = 0; qi < queue.length; qi++) {
+      const cur = queue[qi];
+      const cx = cur % this.w, cy = Math.floor(cur / this.w);
+      if (goal(cx, cy)) {
+        end = cur;
+        break;
+      }
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx, ny = cy + dy;
+        const n = ny * this.w + nx;
+        if (this.solidAt(nx, ny) || prev[n] !== -2) continue;
+        prev[n] = cur;
+        queue.push(n);
+      }
+    }
+    if (end < 0) return null;
+    const tiles: Vec[] = [];
+    for (let c = end; c !== start && c >= 0; c = prev[c]) tiles.unshift({ x: (c % this.w) + 0.5, y: Math.floor(c / this.w) + 0.5 });
+    // End on the exact spot clicked when a body fits there.
+    if (!solidGoal && this.walkable(b.x, b.y)) tiles.push(b);
+    // Pull the string: skip every waypoint a straight line can reach.
+    const out: Vec[] = [];
+    let from = a;
+    let i = 0;
+    while (i < tiles.length) {
+      let j = tiles.length - 1;
+      while (j > i && !this.clearLine(from, tiles[j])) j--;
+      out.push(tiles[j]);
+      from = tiles[j];
+      i = j + 1;
+    }
+    return out;
+  }
+
   // rayDistances casts rays from (x, y) and returns how far each travels
   // before a wall, up to maxR. These shape the candlelight.
   rayDistances(x: number, y: number, maxR: number, rays: number): Float32Array {
