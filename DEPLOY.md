@@ -76,6 +76,8 @@ fly open                 # opens https://<name>.fly.dev
 
 Play a night at `https://<name>.fly.dev` with a friend or two browser windows.
 
+When pushing to master, a deploy is automatically triggered.
+
 ## 5. Your own domain
 
 For `lastcandle.yourdomain.com`:
