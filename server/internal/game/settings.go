@@ -46,6 +46,11 @@ func whole(key, label, group, unit string, min, max int, field func(*Config) *in
 var Settings = []Setting{
 	num("hourSeconds", "Length of an hour", "The night", "s", 10, 180, 5, func(c *Config) *float64 { return &c.HourSeconds }),
 	num("grace", "Grace period at the start", "The night", "s", 0, 60, 5, func(c *Config) *float64 { return &c.Grace }),
+	whole("nightHours", "Length of the night", "The night", "h", 2, 12, func(c *Config) *int { return &c.NightHours }),
+	whole("witchingHour", "The Witching Hour", "The night", "clock", 1, 11, func(c *Config) *int { return &c.WitchingHour }),
+	whole("firstDinner", "First dinner", "Dinner", "clock", 1, 11, func(c *Config) *int { return &c.FirstDinner }),
+	whole("dinnerEvery", "Dinner every", "Dinner", "h", 1, 6, func(c *Config) *int { return &c.DinnerEvery }),
+	whole("dinners", "Dinners a night", "Dinner", "", 0, 6, func(c *Config) *int { return &c.Dinners }),
 	num("discuss", "Discussion time", "Meetings", "s", 5, 180, 5, func(c *Config) *float64 { return &c.Discuss }),
 	num("vote", "Voting time", "Meetings", "s", 5, 60, 5, func(c *Config) *float64 { return &c.Vote }),
 	num("speed", "Walking speed", "Movement", "tiles/s", 1, 12, 0.5, func(c *Config) *float64 { return &c.Speed }),

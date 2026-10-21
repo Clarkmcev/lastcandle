@@ -1,25 +1,24 @@
 import Phaser from "phaser";
 import type { Session } from "./session";
 import type { Vec } from "./protocol";
+import { ART, paintManor } from "./roomart";
+import * as sfx from "./sfx";
+import { dist } from "./world";
 import { DIRS, FRAMES_PER_DIR, FRAME_H, FRAME_W, IDLE_FRAMES, WALK_FRAMES, frameIndex, sheet } from "./sprites";
 
 export const TS = 32; // pixels per tile
-
-// Each room keeps a signature tint under the sepia (see the design doc).
-const ROOM_FLOOR: Record<string, number> = {
-  library: 0x2c3a28,
-  chapel: 0x252e3d,
-  nursery: 0x3d2a32,
-  study: 0x3a2e22,
-  dining: 0x3f2c20,
-  ballroom: 0x463b20,
-  conservatory: 0x2a3a33,
-  entrance: 0x382f27,
-  kitchen: 0x3a3026,
-  cellar: 0x1d1b19,
-};
+// The camera's zoom. Art pixels are 2 world pixels, so 1.5 makes each one
+// exactly 3 screen pixels and the pixel art stays crisp.
+const ZOOM = 1.5;
 
 const RAYS = 120;
+const HOLD_MS = 180; // a press longer than this steers toward the cursor
+
+// Footsteps: one every STRIDE tiles walked, heard up to HEAR_STEPS tiles
+// away. Rooms with stone, tile or marble floors sound sharper than wood.
+const STRIDE = 1.1;
+const HEAR_STEPS = 10;
+const STONE_FLOORS = new Set(["chapel", "ballroom", "conservatory", "entrance", "kitchen", "cellar"]);
 const hex = (c: string) => Phaser.Display.Color.HexStringToColor(c).color;
 
 type Facing = "down" | "up" | "left" | "right";
@@ -45,14 +44,21 @@ interface Light {
 
 export class GameScene extends Phaser.Scene {
   private session!: Session;
-  private mapG!: Phaser.GameObjects.Graphics;
   private mapImg?: Phaser.GameObjects.Image;
   private dynG!: Phaser.GameObjects.Graphics;
   private fxG!: Phaser.GameObjects.Graphics;
   private sprites = new Map<string, Phaser.GameObjects.Sprite>();
   private bodies = new Map<string, Phaser.GameObjects.Sprite>();
   private motion = new Map<string, Motion>();
+  private steps = new Map<string, { x: number; y: number; walked: number; left: boolean }>();
   private myInput: [number, number] = [0, 0];
+  // Mouse movement: hold the left button to walk toward the cursor, or click
+  // to walk to a spot (along a path through doors). Keys take over at once.
+  private mouseDown = false;
+  private mouseDownAt = 0;
+  private walk: { path: Vec[]; last: Vec; still: number } | null = null;
+  private markG!: Phaser.GameObjects.Graphics;
+  private mark: { x: number; y: number; at: number } | null = null;
   private glowG!: Phaser.GameObjects.Graphics;
   private eraser!: Phaser.GameObjects.Graphics;
   private dark!: Phaser.GameObjects.RenderTexture;
@@ -72,8 +78,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // The static map is drawn once and baked into a texture.
-    this.mapG = this.make.graphics({}, false);
     this.glowG = this.add.graphics().setDepth(5).setBlendMode(Phaser.BlendModes.ADD);
     this.dynG = this.add.graphics().setDepth(4);
     this.fxG = this.add.graphics().setDepth(4.9);
@@ -87,7 +91,31 @@ export class GameScene extends Phaser.Scene {
       up: k("W"), down: k("S"), left: k("A"), right: k("D"),
       up2: k("UP"), down2: k("DOWN"), left2: k("LEFT"), right2: k("RIGHT"),
     };
-    this.cameras.main.setBackgroundColor("#030204");
+    this.cameras.main.setBackgroundColor("#030204").setZoom(ZOOM);
+
+    this.markG = this.add.graphics().setDepth(10.4);
+    this.input.mouse?.disableContextMenu();
+    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
+      if (!p.leftButtonDown()) return;
+      this.mouseDown = true;
+      this.mouseDownAt = performance.now();
+      this.walk = null;
+    });
+    const release = (p: Phaser.Input.Pointer) => {
+      if (!this.mouseDown) return;
+      this.mouseDown = false;
+      // A quick click walks to the spot; a long hold already walked there.
+      if (performance.now() - this.mouseDownAt < HOLD_MS) this.walkTo(this.pointerTile(p));
+    };
+    this.input.on("pointerup", release);
+    this.input.on("pointerupoutside", () => (this.mouseDown = false));
+    this.input.on("gameout", () => (this.mouseDown = false));
+    // Any movement key cancels a clicked walk, even a tap too quick for the
+    // next movement tick to see.
+    const moveKeys = new Set(["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"]);
+    kb.on("keydown", (e: KeyboardEvent) => {
+      if (moveKeys.has(e.key.toLowerCase())) this.walk = null;
+    });
   }
 
   private buildMap() {
@@ -102,55 +130,19 @@ export class GameScene extends Phaser.Scene {
     this.sprites.clear();
     this.bodies.clear();
     this.motion.clear();
+    this.steps.clear();
     this.children.list.filter((o) => o.getData("roomLabel")).forEach((o) => o.destroy());
 
-    const g = this.mapG.clear();
-    for (let y = 0; y < world.h; y++) {
-      for (let x = 0; x < world.w; x++) {
-        const t = world.tile(x, y);
-        const px = x * TS, py = y * TS;
-        if (t === "#") {
-          const nearFloor = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => world.tile(x + dx, y + dy) !== "#");
-          g.fillStyle(nearFloor ? 0x2a1d14 : 0x0b0806).fillRect(px, py, TS, TS);
-          if (nearFloor) g.fillStyle(0x3d2b1d).fillRect(px, py + TS - 6, TS, 6);
-          continue;
-        }
-        const room = world.roomAt(x + 0.5, y + 0.5);
-        const base = room >= 0 ? ROOM_FLOOR[view.rooms[room].id] ?? 0x3a2e24 : 0x2b2119;
-        const c = Phaser.Display.Color.IntegerToColor(base);
-        if ((x + y) % 2) c.lighten(4);
-        g.fillStyle(c.color).fillRect(px, py, TS, TS);
-        g.lineStyle(1, 0x000000, 0.15).strokeRect(px, py, TS, TS);
-      }
-    }
-    // Furniture.
-    const rect = (r: { x0: number; y0: number; x1: number; y1: number }, fill: number, line: number) => {
-      g.fillStyle(fill).fillRoundedRect(r.x0 * TS + 2, r.y0 * TS + 2, (r.x1 - r.x0 + 1) * TS - 4, (r.y1 - r.y0 + 1) * TS - 4, 6);
-      g.lineStyle(2, line).strokeRoundedRect(r.x0 * TS + 2, r.y0 * TS + 2, (r.x1 - r.x0 + 1) * TS - 4, (r.y1 - r.y0 + 1) * TS - 4, 6);
-    };
-    rect(view.table, 0x4a2c18, 0x7a4e2a);
-    for (let i = 0; i < 6; i++) g.fillStyle(0xd8c9a0).fillCircle((view.table.x0 + 0.5 + i) * TS, (view.table.y0 + 2) * TS, 3);
-    rect(view.altar, 0x8d8576, 0xc9c0ad);
-    for (const m of view.mirrors) {
-      g.fillStyle(0x6e5a2e).fillRect(m.x * TS - 13, m.y * TS - 13, 26, 26);
-      g.fillStyle(0x9fb4c4).fillRect(m.x * TS - 9, m.y * TS - 9, 18, 18);
-      g.fillStyle(0xe6f0f5, 0.5).fillTriangle(m.x * TS - 9, m.y * TS - 9, m.x * TS + 2, m.y * TS - 9, m.x * TS - 9, m.y * TS + 2);
-    }
-    for (const pair of view.passages ?? []) {
-      for (const p of pair) {
-        g.lineStyle(2, 0x9b5de5, 0.9).strokeRect(p.x * TS - 14, p.y * TS - 14, 28, 28);
-        g.fillStyle(0x9b5de5, 0.2).fillRect(p.x * TS - 14, p.y * TS - 14, 28, 28);
-      }
-    }
+    // The static map is painted once, as pixel art (roomart.ts).
     this.mapImg?.destroy();
     if (this.textures.exists("manor")) this.textures.remove("manor");
-    g.generateTexture("manor", world.w * TS, world.h * TS);
-    g.clear();
-    this.mapImg = this.add.image(0, 0, "manor").setOrigin(0).setDepth(0);
+    this.textures.addCanvas("manor", paintManor(view))!.setFilter(Phaser.Textures.FilterMode.NEAREST);
+    this.mapImg = this.add.image(0, 0, "manor").setOrigin(0).setScale(TS / ART).setDepth(0);
+    s.mapBuilt = true;
 
     for (const r of view.rooms) {
       const label = this.add
-        .text(r.x0 * TS + 6, r.y0 * TS + 4, r.name.toUpperCase(), { fontFamily: "IM Fell English, Georgia, serif", fontSize: "13px", color: "#c9b48a" })
+        .text(r.x0 * TS + 6, r.y0 * TS + 4, r.name.toUpperCase(), { fontFamily: "Pixelify Sans, monospace", fontSize: "13px", color: "#c9b48a", resolution: 2 })
         .setAlpha(0.55)
         .setDepth(1);
       label.setData("roomLabel", true);
@@ -185,6 +177,7 @@ export class GameScene extends Phaser.Scene {
       r.y += (r.ty - r.y) * k;
     }
     this.drawDynamic(time, me);
+    this.drawMark(performance.now());
     this.drawLights(time, me);
   }
 
@@ -193,7 +186,80 @@ export class GameScene extends Phaser.Scene {
     const k = this.keys;
     const dx = (k.right.isDown || k.right2.isDown ? 1 : 0) - (k.left.isDown || k.left2.isDown ? 1 : 0);
     const dy = (k.down.isDown || k.down2.isDown ? 1 : 0) - (k.up.isDown || k.up2.isDown ? 1 : 0);
-    return [dx, dy];
+    const s = this.session;
+    if (s.loading) {
+      this.walk = null;
+      return [0, 0];
+    }
+    if (dx || dy || !s.canMove()) {
+      this.walk = null;
+      return [dx, dy];
+    }
+    const me = s.pos;
+    if (this.mouseDown && performance.now() - this.mouseDownAt >= HOLD_MS) {
+      const t = this.pointerTile(this.input.activePointer);
+      const ux = t.x - me.x, uy = t.y - me.y;
+      const d = Math.hypot(ux, uy);
+      return d < 0.3 ? [0, 0] : [ux / d, uy / d];
+    }
+    return this.followWalk();
+  }
+
+  // The tile position under the pointer, fresh even while the camera moves.
+  private pointerTile(p: Phaser.Input.Pointer): Vec {
+    const w = this.cameras.main.getWorldPoint(p.x, p.y);
+    return { x: w.x / TS, y: w.y / TS };
+  }
+
+  private walkTo(to: Vec) {
+    const s = this.session;
+    if (!s.world || !s.canMove()) return;
+    // Ghosts drift through walls, so they go straight there.
+    const path = s.snap?.you.ghost ? [to] : s.world.path(s.pos, to);
+    if (!path?.length) return;
+    this.walk = { path, last: s.pos, still: 0 };
+    const end = path[path.length - 1];
+    this.mark = { x: end.x, y: end.y, at: performance.now() };
+  }
+
+  // One tick along the clicked path. The last step toward each waypoint is
+  // shortened so we land on it instead of overshooting.
+  private followWalk(): [number, number] {
+    const w = this.walk;
+    if (!w) return [0, 0];
+    const s = this.session;
+    const cfg = s.start!.config;
+    const step = (s.snap?.you.ghost ? cfg.ghostSpeed : cfg.speed) * cfg.tick;
+    const me = s.pos;
+    while (w.path.length && dist(me, w.path[0]) < 0.05) w.path.shift();
+    // Give up when something (a wall corner, another player) holds us still.
+    w.still = dist(me, w.last) < 0.01 ? w.still + cfg.tick : 0;
+    w.last = me;
+    if (!w.path.length || w.still > 0.5) {
+      this.walk = null;
+      return [0, 0];
+    }
+    const wp = w.path[0];
+    const d = dist(me, wp);
+    const k = Math.min(1, d / step) / d;
+    return [(wp.x - me.x) * k, (wp.y - me.y) * k];
+  }
+
+  // A ring where a click sent you, drawn above the darkness.
+  private drawMark(time: number) {
+    const g = this.markG.clear();
+    if (!this.mark) return;
+    const age = (time - this.mark.at) / 1000;
+    const walking = this.walk !== null;
+    if (!walking && age > 0.6) {
+      this.mark = null;
+      return;
+    }
+    const a = walking ? 0.55 : 0.55 * (1 - age / 0.6);
+    const x = this.mark.x * TS, y = this.mark.y * TS;
+    const r = 6 + 3 * Math.sin(time * 0.008);
+    g.lineStyle(2, 0xffd27a, a).strokeEllipse(x, y + 8, r * 2.4, r);
+    g.fillStyle(0xffd27a, a).fillRect(x - 1, y + 7, 2, 2);
   }
 
   private drawDynamic(time: number, me: Vec) {
@@ -203,18 +269,22 @@ export class GameScene extends Phaser.Scene {
     const g = this.dynG.clear();
     if (!snap) return;
 
-    // Hearths: lit ones flicker; cold ones show relight progress.
+    // Hearths: pixel flames flicker in the fireplace (painted in roomart.ts);
+    // cold ones hold grey ash and show relight progress.
     snap.hearths.forEach((h, i) => {
       const p = view.hearths[i];
       const x = p.x * TS, y = p.y * TS;
-      g.fillStyle(0x3b2a20).fillRect(x - 15, y - 15, 30, 30);
-      g.fillStyle(0x140c08).fillRect(x - 10, y - 8, 20, 18);
+      const floor = y + 10;
       if (h.lit) {
-        const f = 1 + 0.15 * Math.sin(time * 0.013 + i);
-        g.fillStyle(0xff8a2a).fillTriangle(x - 8, y + 8, x + 8, y + 8, x, y - 10 * f);
-        g.fillStyle(0xffd27a).fillTriangle(x - 4, y + 8, x + 4, y + 8, x, y - 3 * f);
+        for (let c = -3; c <= 3; c++) {
+          const f = 0.75 + 0.35 * Math.sin(time * 0.017 + c * 1.9 + i * 3);
+          const tall = Math.max(1, Math.round((4 - Math.abs(c)) * 1.6 * f));
+          g.fillStyle(0xd8501a).fillRect(x + c * 2 - 1, floor - tall * 2, 2, tall * 2);
+          if (Math.abs(c) <= 1) g.fillStyle(0xffd27a).fillRect(x + c * 2 - 1, floor - Math.round(tall * 0.55) * 2, 2, Math.round(tall * 0.55) * 2);
+        }
+        g.fillStyle(0x8a2a0a).fillRect(x - 8, floor, 16, 2);
       } else {
-        g.fillStyle(0x555049).fillRect(x - 7, y + 4, 14, 4);
+        g.fillStyle(0x555049).fillRect(x - 8, floor - 2, 16, 4);
         if (h.p) {
           g.lineStyle(3, 0xffaa55).beginPath();
           g.arc(x, y, 18, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * h.p).strokePath();
@@ -267,6 +337,7 @@ export class GameScene extends Phaser.Scene {
       seen.add(id);
       const px = x * TS, py = y * TS;
       const { face, moving } = this.motionOf(id, x, y, self, time);
+      this.footsteps(id, x, y, ghost, self, me);
       const key = this.character(s.color(id));
       const dir = face === "left" || face === "right" ? "side" : face;
       const anim = `${key}:${dir}:${moving && !ghost ? "walk" : "idle"}`;
@@ -303,7 +374,7 @@ export class GameScene extends Phaser.Scene {
       let label = this.labels.get(id);
       if (!label) {
         label = this.add
-          .text(0, 0, s.name(id), { fontFamily: "IM Fell English, Georgia, serif", fontSize: "13px", color: "#efe3c8", stroke: "#000", strokeThickness: 3 })
+          .text(0, 0, s.name(id), { fontFamily: "Pixelify Sans, monospace", fontSize: "12px", color: "#f2e6c8", stroke: "#000", strokeThickness: 3, resolution: 2 })
           .setOrigin(0.5, 1)
           .setDepth(11);
         this.labels.set(id, label);
@@ -357,6 +428,36 @@ export class GameScene extends Phaser.Scene {
     return { face: m.face, moving: now < m.movingUntil };
   }
 
+  // Plays a footstep each stride a character walks, panned and fading with
+  // distance from you. Only characters you can see make them (the server
+  // sends no one else), and ghosts float without a sound.
+  private footsteps(id: string, x: number, y: number, ghost: boolean, self: boolean, me: Vec) {
+    let st = this.steps.get(id);
+    if (!st) {
+      this.steps.set(id, { x, y, walked: 0, left: false });
+      return;
+    }
+    const d = Math.hypot(x - st.x, y - st.y);
+    st.x = x;
+    st.y = y;
+    // A long jump (a servant passage, someone coming back into view) is not
+    // walking; a slow frame can still cover a tile or two.
+    if (ghost || d > 4) {
+      st.walked = 0;
+      return;
+    }
+    if ((st.walked += d) < STRIDE) return;
+    st.walked %= STRIDE;
+    st.left = !st.left;
+    const dx = x - me.x;
+    const volume = self ? 0.5 : 0.5 * (1 - Math.hypot(dx, y - me.y) / HEAR_STEPS);
+    if (volume <= 0) return;
+    const world = this.session.world!;
+    const room = world.roomAt(x, y);
+    const surface = room >= 0 && STONE_FLOORS.has(world.view.rooms[room].id) ? "stone" : "wood";
+    sfx.footstep(self ? 0 : Math.max(-1, Math.min(1, dx / 8)), volume, surface, st.left);
+  }
+
   private page(g: Phaser.GameObjects.Graphics, x: number, y: number) {
     g.fillStyle(0xf2e6c6).fillRect(x - 6, y - 8, 12, 15);
     g.lineStyle(1, 0x8a7a55).lineBetween(x - 3, y - 4, x + 3, y - 4).lineBetween(x - 3, y, x + 3, y).lineBetween(x - 3, y + 4, x + 2, y + 4);
@@ -407,6 +508,11 @@ export class GameScene extends Phaser.Scene {
       lights.push({ x: p.x, y: p.y, r: hr * f, rays: rays.map((d) => Math.min(d * f, hr * f)), warm: true });
     });
 
+    // The darkness layer is fixed to the screen and the camera zooms it
+    // about the screen centre, so its pixel (x, y) shows world point
+    // (scrollX + x, scrollY + y) at any zoom.
+    const ox = cam.scrollX;
+    const oy = cam.scrollY;
     // Three soft rings per light. Every light's ring goes into one erase
     // pass, so the cost per frame stays at three passes however many
     // candles are in view.
@@ -418,7 +524,7 @@ export class GameScene extends Phaser.Scene {
         for (let i = 0; i < RAYS; i++) {
           const a = (i / RAYS) * Math.PI * 2;
           const d = Math.min(l.rays[i], l.r * k);
-          pts.push(new Phaser.Math.Vector2((l.x + Math.cos(a) * d) * TS - view.x, (l.y + Math.sin(a) * d) * TS - view.y));
+          pts.push(new Phaser.Math.Vector2((l.x + Math.cos(a) * d) * TS - ox, (l.y + Math.sin(a) * d) * TS - oy));
         }
         this.eraser.fillPoints(pts, true);
       }

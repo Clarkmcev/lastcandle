@@ -6,10 +6,16 @@
     <title>Last Candle</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='12' y='12' width='8' height='18' rx='1' fill='%23f2e6c6'/><path d='M16 2c4 5 4 8 0 10c-4-2-4-5 0-10z' fill='%23ffa640'/></svg>" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&display=swap" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=Press+Start+2P&display=swap" />
   </head>
   <body>
     <div id="game"></div>
+    <canvas id="landing" aria-hidden="true"></canvas>
+    <footer id="copyright">© 2026 Clark McEvoy</footer>
+    <div id="corner">
+      <button id="menuSettings" title="Settings (Esc)">⚙ Settings</button>
+    </div>
 
     <section id="home" class="screen">
       <div class="card">
@@ -27,11 +33,20 @@
     </section>
 
     <section id="lobby" class="screen hidden">
-      <div class="card">
-        <p class="small">Room code</p>
+      <div class="card lobbyCard">
+        <div class="lobbyMain">
+        <div class="lobbyTop">
+          <button id="leaveLobby" title="Leave this party and go back">◀ Leave</button>
+          <p class="small">Room code</p>
+        </div>
         <div id="lobbyCode" class="code"></div>
         <p class="small">Invite link: <a id="lobbyLink" title="Click to copy"></a></p>
+        <div id="youBox">
+          <div class="small">Your character: <b id="lobbyCharName"></b> · pick another below (a bot's swaps with you)</div>
+          <div id="charGrid" role="group" aria-label="Characters"></div>
+        </div>
         <ul id="lobbyPlayers" class="players"></ul>
+        <p id="lobbyRules" class="small"></p>
         <div id="ownerControls">
           <div class="row">
             <button id="addBot">Add a bot</button>
@@ -40,14 +55,28 @@
         </div>
         <p id="guestWait" class="small">Waiting for the host of the lobby to begin…</p>
         <p id="lobbyNote" class="small"></p>
+        </div>
+        <aside id="showcase" aria-live="polite">
+          <div class="showcaseLabel">You arrive as</div>
+          <div id="showcaseStage" class="showcaseStage"></div>
+          <div id="showcaseChar" class="showcaseChar"></div>
+          <div id="showcaseName" class="showcaseName"></div>
+          <p id="showcaseBlurb" class="showcaseBlurb"></p>
+        </aside>
       </div>
     </section>
 
     <section id="hud" class="hidden">
       <div id="topbar">
-        <div id="roleCard"></div>
-        <div id="clock"></div>
-        <div id="status"></div>
+        <div>
+          <div id="roleCard"></div>
+          <button id="gameSettings" title="Settings (Esc)">⚙</button>
+        </div>
+        <div id="whereWhen">
+          <div id="clock"></div>
+          <div id="roomName"></div>
+        </div>
+        <div id="status"><div id="statusText"></div><div id="pages"></div></div>
       </div>
       <div id="candle">
         <div id="candleBody"><div id="wax"></div></div>
@@ -95,6 +124,52 @@
     </section>
 
     <section id="words" class="overlay hidden"></section>
+
+    <section id="loading" class="hidden" aria-live="polite">
+      <div class="loadingCard card wide">
+        <div class="loadingArt">
+          <canvas id="loadingCanvas"></canvas>
+          <div id="loadingAvatar"></div>
+        </div>
+        <div class="loadingText">
+          <div class="small">Ravenscroft Manor · 10 PM · a storm</div>
+          <h2>The night begins…</h2>
+          <div class="small">You arrive as</div>
+          <div id="loadingChar" class="showcaseChar"></div>
+          <div id="loadingName" class="showcaseName"></div>
+          <p id="loadingBlurb" class="showcaseBlurb"></p>
+          <div class="loadBar"><div id="loadFill"></div></div>
+          <p id="loadingStep" class="small"></p>
+          <p id="loadingTip" class="loadingTip"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="settings" class="overlay hidden" role="dialog" aria-labelledby="settingsTitle">
+      <div class="card wide">
+        <div class="settingsHead">
+          <h2 id="settingsTitle">Settings</h2>
+          <button id="settingsClose" title="Close (Esc)">✕</button>
+        </div>
+        <div id="soundSection">
+          <h3>Sound</h3>
+          <div id="soundSettings"></div>
+        </div>
+        <div id="gameActions">
+          <h3>This night</h3>
+          <p id="gameActionsNote" class="small"></p>
+          <div class="row">
+            <button id="leaveGame">◀ Leave the game</button>
+            <button id="stopGame" class="danger">■ Stop the game</button>
+          </div>
+        </div>
+        <div id="rulesSection">
+          <p id="rulesNote" class="small"></p>
+          <div id="ruleSettings"></div>
+          <div id="rulesActions"><button id="rulesReset">Back to the defaults</button></div>
+        </div>
+      </div>
+    </section>
 
     <section id="end" class="overlay hidden">
       <div class="card">

@@ -259,6 +259,27 @@ func (m *Match) graceOver() bool { return m.Clock >= m.Cfg.Grace }
 // Hour is the in-game hour index: 0 is 10 PM, 8 is dawn.
 func (m *Match) Hour() int { return int(m.Clock / m.Cfg.HourSeconds) }
 
+// Witching reports whether it is the Witching Hour.
+func (m *Match) Witching() bool { return m.Hour() == m.Cfg.WitchingHour }
+
+// isDinner reports whether dinner is served at hour h.
+func (m *Match) isDinner(h int) bool {
+	n := h - m.Cfg.FirstDinner
+	return n >= 0 && n%m.Cfg.DinnerEvery == 0 && n/m.Cfg.DinnerEvery < m.Cfg.Dinners
+}
+
+// clockTime names an hour of the night, counted from 10 PM, as "3 AM".
+func clockTime(h int) string {
+	c := (22 + h) % 12
+	if c == 0 {
+		c = 12
+	}
+	if (22+h)%24 < 12 {
+		return fmt.Sprintf("%d AM", c)
+	}
+	return fmt.Sprintf("%d PM", c)
+}
+
 // ClockFace returns the in-game time as a 24h hour and minute.
 func (m *Match) ClockFace() (int, int) {
 	mins := int(m.Clock / m.Cfg.HourSeconds * 60)
@@ -582,10 +603,10 @@ func (m *Match) MirrorWrite(id, word string) string {
 	if mi < 0 {
 		return "Float next to a mirror to write on it"
 	}
-	if p.Ecto < 2 && m.Hour() != 5 {
+	if p.Ecto < 2 && !m.Witching() {
 		return "Writing costs 2 ectoplasm"
 	}
-	if m.Hour() != 5 {
+	if !m.Witching() {
 		p.Ecto -= 2
 	}
 	m.words[mi] = &mirrorWord{Word: word, T: m.Cfg.MirrorWordTime}
@@ -744,14 +765,14 @@ func (m *Match) move(p *Player, dt float64) {
 // a meeting started.
 func (m *Match) onHour(h int) bool {
 	ecto := m.Cfg.EctoPerHour
-	if h == 5 {
+	if h == m.Cfg.WitchingHour {
 		ecto *= 2
 		for _, p := range m.Players {
 			if p.Role == RoleHost {
 				p.SnuffCD = 0
 			}
 		}
-		m.toast("3 AM. The Witching Hour: mirrors fog and the dead grow stronger.")
+		m.toast(clockTime(h) + ". The Witching Hour: mirrors fog and the dead grow stronger.")
 	}
 	for _, p := range m.Players {
 		if p.Ghost {
@@ -769,7 +790,7 @@ func (m *Match) onHour(h int) bool {
 		}
 		return true
 	}
-	if h == 2 || h == 4 || h == 6 {
+	if m.isDinner(h) {
 		m.startMeeting("dinner", "", "")
 		return true
 	}

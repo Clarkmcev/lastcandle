@@ -1,16 +1,26 @@
-<<<<<<< Updated upstream
-import type { ChatMsg, EventMsg, Snapshot } from "./protocol";
-=======
 import type { ChatMsg, EventMsg, MeetingView, Snapshot } from "./protocol";
 import { Landing } from "./landing";
 import { LoadingArt } from "./loading";
 import { type IconKind, ResultArt, RevealArt, goalIcon } from "./reveal";
 import { playSong, setMusic, songName } from "./music";
->>>>>>> Stashed changes
 import type { Session } from "./session";
 import * as sfx from "./sfx";
-import { walkStrip } from "./sprites";
+import { say } from "./voice";
+import { CHARACTERS, type PageKind, pageIcon, walkStrip } from "./sprites";
 import { dist, distToRect } from "./world";
+
+// Shown on the loading screen, one at a time.
+const TIPS = [
+  "Your candle is your light and your clock: refill it at a lit hearth before it gutters out.",
+  "Wax drips in each guest's colour, so you can follow a trail through the dark.",
+  "In a mirror, the Host's reflection lags half a second behind.",
+  "Smoke drifts away from where a snuffer stood.",
+  "A snuff or a struggle nearby can be heard through the walls.",
+  "Ghosts can knock, and write a word on a fogged mirror.",
+  "Two guests together keep each other safe: the Host can only kill in the dark.",
+  "Lay all four pages of the will on the chapel altar, and two guests can read it aloud.",
+  "Dinner calls everyone to the table; it is the best moment to compare stories.",
+];
 
 // avatar is a character's walk cycle as an animated HTML element.
 const avatar = (color: string, still = false, small = false) =>
@@ -29,11 +39,9 @@ export class UI {
   private meetingKey = "";
   private lastMeeting = "";
   private lastPhase = "";
+  private pageKinds?: PageKind[];
   private held = new Set<string>();
 
-<<<<<<< Updated upstream
-  constructor(private connect: (room: string, name: string) => Session) {
-=======
   private landing = new Landing($<HTMLCanvasElement>("landing"));
   private loadingArt = new LoadingArt($<HTMLCanvasElement>("loadingCanvas"));
   private loadingTimer = 0;
@@ -79,7 +87,6 @@ export class UI {
     document.addEventListener("keydown", (e) => {
       if (e.key.toLowerCase() === "m" && !e.repeat && !(e.target instanceof HTMLInputElement)) this.toggleMusic();
     });
->>>>>>> Stashed changes
     const name = $<HTMLInputElement>("name");
     name.value = localStorage.getItem("lastcandle:name") ?? "";
     const code = location.hash.slice(1).toUpperCase();
@@ -93,8 +100,8 @@ export class UI {
         return;
       }
       localStorage.setItem("lastcandle:name", n);
-      sfx.startRain();
-      this.bind(this.connect(room, n));
+      sfx.audioContext(); // start sound while we have the click (browsers require one)
+      this.bind(this.connect(room, n, this.character));
     };
     $("create").onclick = () => go("");
     $("join").onclick = () => {
@@ -102,11 +109,329 @@ export class UI {
       if (c.length !== 4) return this.homeError("Room codes have four letters.");
       go(c);
     };
-    $<HTMLInputElement>("code").onkeydown = (e) => e.key === "Enter" && $("join").click();
+    $<HTMLInputElement>("code").onkeydown = (e) => {
+      if (e.key === "Enter") $("join").click();
+    };
+
+    // Developer mode (server started with -dev): ?dev starts an empty sandbox
+    // match at once. ?dev=host plays the Host; &bots=N adds guest bots.
+    const dev = new URLSearchParams(location.search);
+    if (dev.has("dev")) {
+      if (!name.value.trim()) name.value = "Developer";
+      go("");
+      let started = false;
+      this.session!.on("lobby", () => {
+        if (started) return;
+        started = true;
+        const bots = Math.min(9, Number(dev.get("bots")) || 0);
+        for (let i = 0; i < bots; i++) this.session!.net.send({ t: "addBot" });
+        this.session!.net.send({ t: "start", dev: true, role: dev.get("dev") === "host" ? "host" : "guest" });
+      });
+    }
+
+    // Every button blips when pressed (by mouse or keyboard).
+    document.addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest?.("button, input[type=checkbox]") as HTMLButtonElement | HTMLInputElement | null;
+      if (!b || b.disabled) return;
+      const back = b.classList.contains("danger") || b.id === "leaveLobby" || b.id === "settingsClose";
+      sfx.click(back ? "back" : b.classList.contains("primary") ? "confirm" : "normal");
+    });
 
     document.addEventListener("keydown", (e) => this.onKey(e, true));
     document.addEventListener("keyup", (e) => this.onKey(e, false));
     window.addEventListener("blur", () => this.releaseAll());
+  }
+
+  private toggleMusic() {
+    this.musicOn = !this.musicOn;
+    localStorage.setItem("lastcandle:music", this.musicOn ? "on" : "off");
+    this.updateMusic();
+    // Update the box in place: redrawing it mid-click would let the click
+    // land on the new box too and switch the music straight back.
+    const box = document.getElementById("musicCheck") as HTMLInputElement | null;
+    if (box) {
+      box.checked = this.musicOn;
+      box.parentElement!.querySelector("output")!.textContent = this.musicOn ? "on" : "off";
+    }
+  }
+
+  // The theme plays in the menus, and more quietly during a match so the
+  // knocks and footsteps stay audible. M toggles it anywhere.
+  private updateMusic() {
+    if (this.soundAllowed) setMusic(this.musicOn ? (this.where === "game" ? 0.35 : 1) : 0);
+  }
+
+  // ------------------------------------------------------------ settings
+
+  private settingsOpen() {
+    return !$("settings").classList.contains("hidden");
+  }
+
+  // The ⚙ settings are sound only; the rules of the night open from the
+  // lobby ("Change the rules…"), the one place they can be changed.
+  private panel: "sound" | "rules" = "sound";
+
+  private openSettings() {
+    this.panel = "sound";
+    $("settingsTitle").textContent = "Settings";
+    show("soundSection", true);
+    show("rulesSection", false);
+    this.renderSound();
+    this.renderGameActions();
+    show("settings", true);
+  }
+
+  private openRules() {
+    this.panel = "rules";
+    $("settingsTitle").textContent = "Rules of the night";
+    show("soundSection", false);
+    show("gameActions", false);
+    show("rulesSection", true);
+    this.renderRules();
+    show("settings", true);
+  }
+
+  private closeSettings() {
+    show("settings", false);
+  }
+
+  // Sound is each player's own, kept in this browser.
+  private renderSound() {
+    const vol = sfx.getVolumes();
+    const rows: [keyof sfx.Volumes, string][] = [
+      ["master", "Master volume"],
+      ["music", "Music"],
+      ["effects", "Sound effects"],
+    ];
+    $("soundSettings").innerHTML =
+      rows
+        .map(
+          ([k, label]) => `<label class="setting">
+            <span>${label}</span>
+            <input type="range" min="0" max="100" step="5" value="${Math.round(vol[k] * 100)}" data-vol="${k}">
+            <output>${Math.round(vol[k] * 100)}%</output>
+          </label>`,
+        )
+        .join("") +
+      `<label class="setting"><span>Play the music <span class="later">Now: “${songName()}” · M switches it anywhere</span></span>
+        <input type="checkbox" id="musicCheck" ${this.musicOn ? "checked" : ""}><output>${this.musicOn ? "on" : "off"}</output></label>`;
+    $("soundSettings")
+      .querySelectorAll<HTMLInputElement>("[data-vol]")
+      .forEach((input) => {
+        input.oninput = () => {
+          sfx.setVolumes({ [input.dataset.vol!]: Number(input.value) / 100 });
+          input.nextElementSibling!.textContent = `${input.value}%`;
+        };
+      });
+    $<HTMLInputElement>("musicCheck").onchange = () => this.toggleMusic();
+  }
+
+  // The rules belong to the room: everyone in the lobby can read them, and
+  // the player who runs the lobby changes them before the night begins.
+  private renderRules() {
+    const s = this.session;
+    const l = s?.lobby;
+    show("rulesActions", false);
+    if (!s || !l?.settings) {
+      $("rulesNote").textContent = "The rules are set in each lobby by whoever hosts the dinner party.";
+      $("ruleSettings").innerHTML = "";
+      return;
+    }
+    const owner = l.players.find((p) => p.id === l.owner);
+    $("rulesNote").textContent = s.isOwner
+      ? "You host this party: the rules apply to everyone in the room."
+      : `Only ${owner?.name ?? "the host of the lobby"} can change the rules.`;
+    show("rulesActions", s.isOwner);
+    // Clock settings count hours from 10 PM; show them as times of night.
+    const clock = (h: number) => {
+      const c = (22 + h) % 24;
+      return `${c % 12 === 0 ? 12 : c % 12} ${c < 12 ? "AM" : "PM"}`;
+    };
+    const fmt = (spec: { step: number; unit?: string }, v: number) =>
+      spec.unit === "clock"
+        ? clock(v)
+        : `${v.toFixed(spec.step < 1 ? 1 : 0)}${spec.unit ? (spec.unit === "s" ? " s" : ` ${spec.unit}`) : ""}`;
+
+    // Keep a slider the owner is dragging where it is.
+    const active = document.activeElement instanceof HTMLInputElement ? document.activeElement.dataset.rule : undefined;
+    let html = "";
+    let group = "";
+    for (const spec of l.settings) {
+      if (spec.group !== group) {
+        group = spec.group;
+        html += `<h4>${esc(group)}</h4>`;
+      }
+      const v = l.values[spec.key];
+      const changed = v !== l.defaults[spec.key];
+      html += `<label class="setting${changed ? " changed" : ""}" title="${changed ? `Default: ${fmt(spec, l.defaults[spec.key])}` : ""}">
+        <span>${esc(spec.label)}</span>
+        <input type="range" min="${spec.min}" max="${spec.max}" step="${spec.step}" value="${v}" data-rule="${spec.key}" ${s.isOwner ? "" : "disabled"}>
+        <output>${fmt(spec, v)}</output>
+      </label>`;
+    }
+    if (active && $("ruleSettings").querySelector(`[data-rule="${active}"]`)) {
+      // Re-render everything but the slider in the owner's hand.
+      const keep = $("ruleSettings").querySelector<HTMLInputElement>(`[data-rule="${active}"]`)!.value;
+      $("ruleSettings").innerHTML = html;
+      const input = $("ruleSettings").querySelector<HTMLInputElement>(`[data-rule="${active}"]`)!;
+      input.value = keep;
+      input.focus();
+    } else {
+      $("ruleSettings").innerHTML = html;
+    }
+    $("ruleSettings")
+      .querySelectorAll<HTMLInputElement>("[data-rule]")
+      .forEach((input) => {
+        const spec = l.settings.find((x) => x.key === input.dataset.rule)!;
+        input.oninput = () => (input.nextElementSibling!.textContent = fmt(spec, Number(input.value)));
+        input.onchange = () => s.net.send({ t: "settings", values: { [spec.key]: Number(input.value) } });
+      });
+    $("rulesReset").onclick = () => s.net.send({ t: "settings", values: l.defaults });
+  }
+
+  // ------------------------------------------------------- loading
+
+  // Before the night: the manor's door, your character walking up to it, and
+  // a loading bar. It stays at least a few seconds, and until the scene has
+  // painted this match's manor.
+  private showLoading(done: () => void) {
+    const s = this.session!;
+    const me = s.roster.get(s.me);
+    const c = CHARACTERS.find((x) => x.color === me?.color);
+    s.loading = true;
+    $("loadingAvatar").innerHTML = avatar(me?.color ?? CHARACTERS[0].color).replace('class="avatar', 'class="avatar huge');
+    $("loadingChar").textContent = c?.name ?? "";
+    $("loadingName").textContent = me?.name ?? "";
+    $("loadingBlurb").textContent = c?.blurb ?? "";
+    $("loadingTip").textContent = "Tip: " + TIPS[Math.floor(Math.random() * TIPS.length)];
+    $("loadFill").style.width = "0";
+    show("loading", true);
+    this.loadingArt.start();
+    if (me) setTimeout(() => s.loading && say(me.color, "At last, the manor.", { syllables: 5 }), 700);
+    const steps = ["Opening the gates…", "Lighting the candles…", "Setting the table…", "Drawing the curtains…", "Locking the doors…"];
+    const t0 = performance.now();
+    const MIN = 3200;
+    clearInterval(this.loadingTimer);
+    this.loadingTimer = window.setInterval(() => {
+      const elapsed = performance.now() - t0;
+      const p = Math.min(elapsed / MIN, s.mapBuilt ? 1 : 0.9);
+      // Fill in whole blocks, like the rest of the pixel interface.
+      $("loadFill").style.width = `${Math.floor(p * 20) * 5}%`;
+      $("loadingStep").textContent = steps[Math.min(steps.length - 1, Math.floor(p * steps.length))];
+      if ((p >= 1 && elapsed >= MIN) || elapsed > 10000) {
+        this.endLoading();
+        done();
+      }
+    }, 100);
+  }
+
+  private endLoading() {
+    clearInterval(this.loadingTimer);
+    this.loadingTimer = 0;
+    this.loadingArt.stop();
+    show("loading", false);
+    if (this.session) this.session.loading = false;
+  }
+
+  // ------------------------------------------------------- characters
+
+  private chooseCharacter(color: string) {
+    this.character = color;
+    localStorage.setItem("lastcandle:color", color);
+  }
+
+  // In the lobby: every character, free ones to click. One
+  // held by another player is dimmed; a bot's swaps with yours.
+  private renderYou() {
+    const s = this.session!;
+    const l = s.lobby!;
+    const me = l.players.find((p) => p.id === s.me);
+    if (!me) return;
+    const list = l.characters ?? CHARACTERS;
+    $("lobbyCharName").textContent = list.find((c) => c.color === me.color)?.name ?? "";
+    // The showcase on the right: your character, large, on a candlelit stage.
+    const pick = CHARACTERS.find((c) => c.color === me.color);
+    if ($("showcaseStage").dataset.color !== me.color) {
+      $("showcaseStage").dataset.color = me.color;
+      $("showcaseStage").innerHTML = avatar(me.color).replace('class="avatar', 'class="avatar huge');
+      $("showcase").classList.remove("arrive");
+      void $("showcase").offsetWidth;
+      $("showcase").classList.add("arrive");
+    }
+    $("showcaseChar").textContent = pick?.name ?? "";
+    $("showcaseName").textContent = me.name;
+    $("showcaseBlurb").textContent = pick?.blurb ?? "";
+
+    $("charGrid").innerHTML = list
+      .map((c) => {
+        const holder = l.players.find((p) => p.color === c.color);
+        const mine = holder?.id === s.me;
+        const theirs = holder && !mine && !holder.bot;
+        const note = mine ? " (you)" : theirs ? ` (${holder!.name})` : holder ? " (a bot: swap)" : "";
+        return `<button class="char${mine ? " chosen" : ""}" data-color="${c.color}" ${theirs ? "disabled" : ""}
+          title="${esc(c.name + note)}" aria-label="${esc(c.name + note)}" aria-pressed="${mine}">${avatar(c.color, !mine, true)}</button>`;
+      })
+      .join("");
+    $("charGrid")
+      .querySelectorAll<HTMLButtonElement>("[data-color]")
+      .forEach((b) => {
+        b.onclick = () => {
+          say(b.dataset.color!, "Good evening.", { syllables: 4 });
+          this.chooseCharacter(b.dataset.color!);
+          s.net.send({ t: "pick", color: b.dataset.color });
+        };
+      });
+  }
+
+  // During a match the settings also let you leave, or (for whoever runs
+  // the lobby) stop the night and bring everyone back to the lobby.
+  private renderGameActions() {
+    const s = this.session;
+    const inGame = this.where === "game" && !!s;
+    show("gameActions", inGame);
+    if (!inGame) return;
+    show("stopGame", s.isOwner);
+    this.disarmStop();
+    $("gameActionsNote").textContent = s.isOwner
+      ? "Stopping ends the night for everyone and brings the whole party back to the lobby. Leaving takes only you back to the main menu."
+      : "Leaving takes you back to the main menu; the others play on without you.";
+  }
+
+  private stopArmed = 0;
+
+  // Stopping affects everyone, so it takes a second click to confirm.
+  private stopGame() {
+    const b = $("stopGame");
+    if (!this.stopArmed) {
+      b.textContent = "■ Click again to stop";
+      b.classList.add("armed");
+      this.stopArmed = window.setTimeout(() => this.disarmStop(), 3000);
+      return;
+    }
+    this.disarmStop();
+    this.session?.net.send({ t: "stop" });
+    this.closeSettings();
+  }
+
+  private disarmStop() {
+    clearTimeout(this.stopArmed);
+    this.stopArmed = 0;
+    $("stopGame").textContent = "■ Stop the game";
+    $("stopGame").classList.remove("armed");
+  }
+
+  // Back to the landing page: closing the connection takes us out of the
+  // room, as closing the tab would.
+  private leave() {
+    const s = this.session;
+    if (!s) return;
+    s.net.close();
+    this.session = undefined;
+    sessionStorage.removeItem(`lastcandle:${s.code}`);
+    history.replaceState(null, "", location.pathname + location.search);
+    this.homeError("");
+    this.closeSettings();
+    this.screen("home");
   }
 
   private homeError(text: string) {
@@ -124,7 +449,10 @@ export class UI {
       else this.homeError("Lost the connection to the manor. Rejoin with the same code to continue.");
       this.screen("home");
     };
-    s.on("lobby", () => this.renderLobby());
+    s.on("lobby", () => {
+      this.renderLobby();
+      if (this.settingsOpen() && this.panel === "rules") this.renderRules();
+    });
     s.on("start", () => this.onStart());
     s.on("snap", () => this.onSnap());
     s.on("end", () => this.renderEnd());
@@ -136,6 +464,13 @@ export class UI {
     show("home", name === "home");
     show("lobby", name === "lobby");
     show("hud", name === "game");
+    this.landing.setActive(name !== "game");
+    this.where = name;
+    if (name !== "game") playSong("menu");
+    show("corner", name !== "game");
+    if (name !== "game") this.endLoading();
+    show("copyright", name !== "game");
+    this.updateMusic();
     if (name !== "game") {
       show("meeting", false);
       show("end", false);
@@ -169,6 +504,12 @@ export class UI {
     $("lobbyPlayers").querySelectorAll<HTMLButtonElement>("[data-bot]").forEach((b) => {
       b.onclick = () => s.net.send({ t: "removeBot", target: b.dataset.bot });
     });
+    const v = l.values;
+    $("lobbyRules").innerHTML = v
+      ? `Discussion ${v.discuss} s · walking ${v.speed} tiles/s · rooms ${v.roomWidth}×${v.roomHeight} · ${v.hourSeconds} s hours · <a id="lobbyRulesLink">${s.isOwner ? "Change the rules…" : "All the rules…"}</a>`
+      : "";
+    if (v) $("lobbyRulesLink").onclick = () => this.openRules();
+    this.renderYou();
     show("ownerControls", s.isOwner);
     show("guestWait", !s.isOwner);
     $("addBot").onclick = () => s.net.send({ t: "addBot" });
@@ -186,14 +527,13 @@ export class UI {
   // -------------------------------------------------------------- match
 
   private onStart() {
-    const s = this.session!;
+    $("roomName").textContent = "";
+    this.pageKinds = undefined;
     this.screen("game");
     this.lastMeeting = "";
     this.lastPhase = "";
     $("chatLog").innerHTML = "";
     $("ghostLog").innerHTML = "";
-<<<<<<< Updated upstream
-=======
     this.showLoading(() => this.reveal());
   }
 
@@ -201,7 +541,6 @@ export class UI {
   // pixel art, framed for the part you play (reveal.ts), with your goals.
   private reveal() {
     const s = this.session!;
->>>>>>> Stashed changes
     const host = s.isHost;
     const me = s.roster.get(s.me);
     const color = me?.color ?? CHARACTERS[0].color;
@@ -252,6 +591,36 @@ export class UI {
     else sfx.bell();
   }
 
+  // The four pages of the will, top right: laid on the altar (sealed), in
+  // your hands (glowing) or still lost (faded). New ones pop in, rustling.
+  private renderPages(altar: number, carried: number) {
+    const laid = Math.min(4, altar);
+    const held = Math.min(4 - laid, carried);
+    const kinds: PageKind[] = [0, 1, 2, 3].map((i) => (i < laid ? "laid" : i < laid + held ? "carried" : "missing"));
+    const before = this.pageKinds;
+    if (before && kinds.every((k, i) => k === before[i])) return;
+    if (before) {
+      const count = (list: PageKind[], k: PageKind) => list.filter((x) => x === k).length;
+      if (held > count(before, "carried")) sfx.page(1); // picked one up
+      else if (laid > count(before, "laid")) sfx.page(0.7); // one went on the altar
+    }
+    $("pages").innerHTML = kinds
+      .map((k, i) => `<img src="${pageIcon(k)}" class="page ${k}${before && k !== before[i] && k !== "missing" ? " fresh" : ""}" alt="">`)
+      .join("");
+    $("pages").title = `Pages of the will: ${laid} on the altar${held ? `, ${held} in your hands` : ""}`;
+    this.pageKinds = kinds;
+  }
+
+  private showRoom(name: string) {
+    const el = $("roomName");
+    if (el.textContent === name) return;
+    el.textContent = name;
+    // Restart the drop-in animation.
+    el.classList.remove("enter");
+    void el.offsetWidth;
+    el.classList.add("enter");
+  }
+
   private onSnap() {
     const s = this.session!;
     const snap = s.snap!;
@@ -262,16 +631,24 @@ export class UI {
     const h12 = snap.hour % 12 === 0 ? 12 : snap.hour % 12;
     const ampm = snap.hour >= 12 && snap.hour < 24 && snap.hour !== 0 ? "PM" : "AM";
     $("clock").textContent = `${h12}:${String(snap.minute).padStart(2, "0")} ${ampm}`;
-    $("clock").classList.toggle("witching", snap.hour === 3);
+    $("clock").classList.toggle("witching", !!snap.witching);
+
+    // Each room has its own piece and its name under the clock; a doorway
+    // keeps both as they were.
+    const room = s.world?.roomAt(s.pos.x, s.pos.y) ?? -1;
+    if (room >= 0) {
+      const r = s.world!.view.rooms[room];
+      playSong(r.id);
+      this.showRoom(r.name);
+    }
 
     const you = snap.you;
     if (you.team === "manor" && !s.isHost) $("roleCard").innerHTML = '<span class="red">Restless Spirit</span>';
     else if (you.ghost) $("roleCard").innerHTML = s.isHost ? '<span class="red">Host (ghost)</span>' : "Ghost";
 
     const lit = snap.hearths.filter((h) => h.lit).length;
-    $("status").innerHTML = `Hearths lit <b>${lit}/${snap.hearths.length}</b> · Pages on the altar <b>${snap.altarPages}/4</b>${
-      you.pages ? ` · Carrying <b>${you.pages}</b>` : ""
-    }${snap.grace ? " · <i>The guests are arriving…</i>" : ""}`;
+    $("statusText").innerHTML = `Hearths lit <b>${lit}/${snap.hearths.length}</b>${snap.grace ? " · <i>The guests are arriving…</i>" : ""}`;
+    this.renderPages(snap.altarPages, you.pages);
 
     const wax = Math.max(0, Math.min(100, you.wax));
     $("wax").style.height = `${wax}%`;
@@ -424,6 +801,8 @@ export class UI {
     if (id !== this.lastMeeting) {
       this.lastMeeting = id;
       $("chatLog").innerHTML = "";
+      // Whoever called the meeting cries out.
+      if (mt.caller) say(s.color(mt.caller), mt.reason === "body" ? "A body, over here!" : "Gather round!", { syllables: 4 });
     }
     const title: Record<string, string> = {
       dinner: "Dinner is served",
@@ -471,6 +850,7 @@ export class UI {
   }
 
   private onChat(c: ChatMsg) {
+    say(c.color, c.text, { ghost: c.ghost, volume: 0.9 });
     const line = `<div class="${c.ghost ? "ghostline" : ""}"><b style="color:${c.color}">${esc(c.name)}</b> ${esc(c.text)}</div>`;
     for (const id of c.ghost && this.session?.snap?.phase === "play" ? ["ghostLog"] : ["chatLog"]) {
       const log = $(id);
@@ -491,10 +871,15 @@ export class UI {
         $("hud").classList.add("draft");
         setTimeout(() => $("hud").classList.remove("draft"), 1200);
         break;
+      case "sound":
+        this.soundAt(e.text!, e.x!, e.y!);
+        return;
       case "snuffed":
-        sfx.puff();
+        say(this.myColor(), "Ah!", { syllables: 1 });
         break;
       case "killed":
+        say(this.myColor(), "Aaah!", { syllables: 2 });
+        break;
       case "locked":
         sfx.thud();
         break;
@@ -509,6 +894,21 @@ export class UI {
     $("toasts").appendChild(el);
     setTimeout(() => el.classList.add("fade"), 4500);
     setTimeout(() => el.remove(), 5500);
+  }
+
+  // A snuff or a kill nearby, panned and fading with distance (the server
+  // only sends it to players within earshot).
+  private myColor() {
+    const s = this.session!;
+    return s.color(s.me);
+  }
+
+  private soundAt(name: string, x: number, y: number) {
+    const s = this.session!;
+    const dx = x - s.pos.x;
+    const volume = Math.max(0.15, 1 - Math.hypot(dx, y - s.pos.y) / 10);
+    if (name === "snuff") sfx.snuff(dx / 8, volume);
+    else if (name === "kill") sfx.kill(dx / 8, volume);
   }
 
   private knock(x: number, y: number) {

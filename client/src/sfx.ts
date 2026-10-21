@@ -1,7 +1,6 @@
 // Small synthesized sounds, so the prototype needs no audio assets.
 
 let ctx: AudioContext | null = null;
-let rain: AudioBufferSourceNode | null = null;
 
 function audio(): AudioContext | null {
   if (!ctx) {
@@ -13,6 +12,71 @@ function audio(): AudioContext | null {
   }
   if (ctx.state === "suspended") ctx.resume();
   return ctx;
+}
+
+// Volumes from the settings page, each 0 to 1, remembered per browser.
+export interface Volumes {
+  master: number;
+  music: number;
+  effects: number;
+}
+
+let volumes: Volumes = { master: 0.8, music: 0.7, effects: 1 };
+try {
+  volumes = { ...volumes, ...JSON.parse(localStorage.getItem("lastcandle:volumes") ?? "{}") };
+} catch {
+  // Keep the defaults if storage is unavailable or holds something odd.
+}
+
+// Every sound goes through a channel (effects or music) into the master.
+let buses: { master: GainNode; music: GainNode; effects: GainNode } | null = null;
+
+function bus(a: AudioContext) {
+  if (!buses) {
+    buses = { master: a.createGain(), music: a.createGain(), effects: a.createGain() };
+    buses.master.connect(a.destination);
+    buses.music.connect(buses.master);
+    buses.effects.connect(buses.master);
+    applyVolumes();
+  }
+  return buses;
+}
+
+function applyVolumes() {
+  if (!buses) return;
+  // Squared, so the sliders feel even to the ear.
+  buses.master.gain.value = volumes.master ** 2;
+  buses.music.gain.value = volumes.music ** 2;
+  buses.effects.gain.value = volumes.effects ** 2;
+}
+
+export function getVolumes(): Volumes {
+  return { ...volumes };
+}
+
+export function setVolumes(v: Partial<Volumes>) {
+  volumes = { ...volumes, ...v };
+  try {
+    localStorage.setItem("lastcandle:volumes", JSON.stringify(volumes));
+  } catch {
+    // Not remembered, but still applied.
+  }
+  applyVolumes();
+}
+
+// The effects channel, for voice.ts.
+export function effectsBus(a: AudioContext) {
+  return bus(a).effects;
+}
+
+// The music channel, for music.ts.
+export function musicBus(a: AudioContext) {
+  return bus(a).music;
+}
+
+// The page's one AudioContext, shared with the music (music.ts).
+export function audioContext() {
+  return audio();
 }
 
 function noiseBuffer(a: AudioContext, seconds: number) {
@@ -32,18 +96,8 @@ function out(a: AudioContext, pan: number, gain: number) {
   g.gain.value = gain;
   const p = a.createStereoPanner();
   p.pan.value = Math.max(-1, Math.min(1, pan));
-  g.connect(p).connect(a.destination);
+  g.connect(p).connect(bus(a).effects);
   return g;
-}
-
-export function startRain() {
-  const a = audio();
-  if (!a || rain) return;
-  rain = a.createBufferSource();
-  rain.buffer = noiseBuffer(a, 4);
-  rain.loop = true;
-  rain.connect(out(a, 0, 0.05));
-  rain.start();
 }
 
 export function knock(pan: number, volume: number) {
@@ -78,20 +132,6 @@ export function bell() {
   }
 }
 
-export function puff() {
-  const a = audio();
-  if (!a) return;
-  const s = a.createBufferSource();
-  s.buffer = noiseBuffer(a, 0.4);
-  const f = a.createBiquadFilter();
-  f.type = "highpass";
-  f.frequency.value = 800;
-  const g = out(a, 0, 0.6);
-  g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + 0.35);
-  s.connect(f).connect(g);
-  s.start();
-}
-
 export function thud() {
   const a = audio();
   if (!a) return;
@@ -121,8 +161,6 @@ export function wind() {
   s.connect(f).connect(g);
   s.start();
 }
-<<<<<<< Updated upstream
-=======
 
 // Thunder for the landing storm. It only plays once the page already has
 // sound (after the first click), so it never starts audio on its own.
@@ -286,4 +324,3 @@ export function sting() {
   s.connect(lp).connect(g);
   s.start(t);
 }
->>>>>>> Stashed changes

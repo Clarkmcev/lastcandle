@@ -146,6 +146,7 @@ type Snapshot struct {
 	Ack        int          `json:"ack"`
 	Phase      Phase        `json:"phase"`
 	Hour       int          `json:"hour"`
+	Witching   bool         `json:"witching,omitempty"`
 	Minute     int          `json:"minute"`
 	Grace      bool         `json:"grace"`
 	You        YouView      `json:"you"`
@@ -209,7 +210,7 @@ func (m *Match) SnapshotFor(id string) Snapshot {
 	p := m.byID[id]
 	hour, minute := m.ClockFace()
 	s := Snapshot{
-		T: "snap", Ack: p.LastSeq, Phase: m.Phase, Hour: hour, Minute: minute,
+		T: "snap", Ack: p.LastSeq, Phase: m.Phase, Hour: hour, Minute: minute, Witching: m.Witching(),
 		Grace: !m.graceOver(), AltarPages: m.AltarPages, Read: m.Read / m.Cfg.ReadTime,
 		Players: []PlayerView{}, Bodies: []BodyView{}, Smoke: []SmokeView{}, Drips: []DripView{},
 		Spots: []SpotView{}, Loose: []Vec{},
@@ -293,7 +294,7 @@ func (m *Match) SnapshotFor(id string) Snapshot {
 		if w := m.words[mi]; w != nil {
 			mv.Word = w.Word
 		}
-		if m.Hour() == 5 && mv.Word == "" {
+		if m.Witching() && mv.Word == "" {
 			mv.Word = "…"
 		}
 		for _, q := range m.Players {

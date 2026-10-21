@@ -12,7 +12,7 @@ install:
 HOUR ?= 20
 PORT ?= 8080
 dev-server:
-	cd server && LASTCANDLE_HOUR_SECONDS=$(HOUR) go run ./cmd/lastcandle -addr :$(PORT) -portfile .lastcandle-port
+	cd server && LASTCANDLE_HOUR_SECONDS=$(HOUR) go run ./cmd/lastcandle -dev -addr :$(PORT) -portfile .lastcandle-port
 
 dev-client:
 	cd client && npm run dev

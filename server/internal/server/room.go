@@ -42,6 +42,7 @@ type inMsg struct {
 	Role   string  `json:"role"`
 	// Values holds settings changes, by setting key (see game.Settings).
 	Values map[string]float64 `json:"values"`
+	Color  string             `json:"color"`
 }
 
 type clientMsg struct {
@@ -52,6 +53,7 @@ type clientMsg struct {
 type joinReq struct {
 	client *Client
 	name   string
+	color  string // the character the player would like, if it is free
 	token  string
 	reply  chan string
 }
@@ -183,6 +185,16 @@ func cleanName(s string) string {
 	return s
 }
 
+// colorTaken reports who holds a character (a colour), or nil.
+func (r *Room) colorTaken(color string) *member {
+	for _, m := range r.members {
+		if m.color == color {
+			return m
+		}
+	}
+	return nil
+}
+
 func (r *Room) freeColor() string {
 	for _, c := range colors {
 		if !slices.ContainsFunc(r.members, func(m *member) bool { return m.color == c }) {
@@ -211,7 +223,11 @@ func (r *Room) onJoin(j joinReq) string {
 	if len(r.members) >= MaxPlayers {
 		return "That room is full"
 	}
-	m := &member{id: randomHex(4), name: cleanName(j.name), color: r.freeColor(), token: randomHex(8), client: j.client}
+	color := r.freeColor()
+	if slices.Contains(colors, j.color) && r.colorTaken(j.color) == nil {
+		color = j.color
+	}
+	m := &member{id: randomHex(4), name: cleanName(j.name), color: color, token: randomHex(8), client: j.client}
 	j.client.id = m.id
 	r.members = append(r.members, m)
 	if o := r.byID(r.owner); o == nil || o.client == nil {
@@ -275,6 +291,7 @@ func (r *Room) broadcastLobby() {
 		"t": "lobby", "code": r.code, "owner": r.owner, "state": r.state,
 		"players": players, "min": MinPlayers, "max": MaxPlayers,
 		"settings": game.Settings, "values": r.cfg.SettingValues(), "defaults": r.hub.cfg.SettingValues(),
+		"characters": characters(),
 	})
 }
 
@@ -306,11 +323,15 @@ func (r *Room) handle(c *Client, msg inMsg) {
 			r.members = slices.DeleteFunc(r.members, func(x *member) bool { return x.bot && x.id == msg.Target })
 			r.broadcastLobby()
 		}
+	case "stop":
+		// The owner calls the night off: everyone goes back to the lobby.
+		if isOwner && r.state == "playing" {
+			log.Printf("room %s: %s stopped the match", r.code, m.name)
+			r.backToLobby()
+		}
 	case "lobby":
 		if isOwner && r.state == "ended" {
-			r.state, r.match = "lobby", nil
-			r.members = slices.DeleteFunc(r.members, func(x *member) bool { return !x.bot && x.client == nil })
-			r.broadcastLobby()
+			r.backToLobby()
 		}
 	case "settings":
 		// Only the owner changes the rules, in the lobby or mid-match. An
@@ -319,6 +340,22 @@ func (r *Room) handle(c *Client, msg inMsg) {
 		if isOwner {
 			r.changeSettings(msg.Values)
 		}
+	case "pick":
+		// Choose a character before the night. A bot gives its character up
+		// (and takes yours); another player's is not yours to take.
+		if r.state != "playing" && slices.Contains(colors, msg.Color) && msg.Color != m.color {
+			if other := r.colorTaken(msg.Color); other == nil || other.bot {
+				if other != nil {
+					wasDefault := other.name == r.botNameFor(other.color)
+					other.color = m.color
+					if wasDefault {
+						other.name = r.botNameFor(other.color)
+					}
+				}
+				m.color = msg.Color
+			}
+		}
+		r.broadcastLobby()
 	case "chat":
 		r.chat(m, msg.Text)
 	}
@@ -356,8 +393,6 @@ func (r *Room) changeSettings(values map[string]float64) {
 	r.broadcastLobby()
 }
 
-<<<<<<< Updated upstream
-=======
 type character struct {
 	Color string `json:"color"`
 	Name  string `json:"name"`
@@ -381,7 +416,6 @@ func (r *Room) backToLobby() {
 	r.broadcastLobby()
 }
 
->>>>>>> Stashed changes
 func clamp1(v float64) float64 {
 	if v > 1 {
 		return 1
@@ -390,6 +424,14 @@ func clamp1(v float64) float64 {
 		return -1
 	}
 	return v
+}
+
+// botNameFor is the character's own name, which bots go by.
+func (r *Room) botNameFor(color string) string {
+	if i := slices.Index(colors, color); i >= 0 {
+		return botNames[i]
+	}
+	return "A Stranger"
 }
 
 func (r *Room) botName(color string) string {

@@ -14,7 +14,12 @@ type Config struct {
 
 	HourSeconds float64 // real time per in-game hour
 	NightHours  int     // 10 PM to 6 AM
-	Grace       float64 // no snuffing or sabotage at the start
+	// Hours are counted from 10 PM: 2 is midnight, 5 is 3 AM.
+	FirstDinner  int     // the hour of the first dinner
+	DinnerEvery  int     // hours between dinners
+	Dinners      int     // how many dinners a night (0: none)
+	WitchingHour int     // mirrors fog and the dead grow stronger
+	Grace        float64 // no snuffing or sabotage at the start
 
 	StartWax     float64
 	BurnPerSec   float64
@@ -76,6 +81,10 @@ func DefaultConfig() Config {
 		Tick:           0.05,
 		HourSeconds:    60,
 		NightHours:     8,
+		FirstDinner:    2,
+		DinnerEvery:    2,
+		Dinners:        3,
+		WitchingHour:   5,
 		Grace:          20,
 		StartWax:       100,
 		BurnPerSec:     0.5,
@@ -158,6 +167,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("roomWidth must be %d to %d tiles", MinRoomWidth, MaxRoomSize)
 	case c.RoomHeight < MinRoomHeight || c.RoomHeight > MaxRoomSize:
 		return fmt.Errorf("roomHeight must be %d to %d tiles", MinRoomHeight, MaxRoomSize)
+	case c.NightHours < 1 || c.DinnerEvery < 1 || c.FirstDinner < 1 || c.Dinners < 0:
+		return fmt.Errorf("nightHours, firstDinner and dinnerEvery must be at least 1, dinners at least 0")
 	case c.Tick <= 0 || c.HourSeconds <= 0:
 		return fmt.Errorf("tick and hourSeconds must be above 0")
 	}

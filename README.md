@@ -26,8 +26,6 @@ If port 8080 is already in use, the server moves to the next free port (8081, 80
 
 Playing alone? Add bots in the lobby. At least 3 players (or bots) are needed.
 
-<<<<<<< Updated upstream
-=======
 ### Deploying
 
 To host it on the internet (Fly.io, one machine, your own domain), see [DEPLOY.md](DEPLOY.md). `make docker-run` runs the production image locally first.
@@ -44,19 +42,27 @@ To host it on the internet (Fly.io, one machine, your own domain), see [DEPLOY.m
 
 A sandbox match has no grace period and never ends. When a real match would end (dawn, the will read, a win), a `[dev]` toast says so and play carries on; at dawn the night starts over. Bots are always guests, so nothing hunts you. A server started without `-dev` refuses sandbox matches.
 
->>>>>>> Stashed changes
 `make test` runs the Go tests (rules, a full bot match, a WebSocket lobby-to-match test) and the TypeScript type check.
+
+### Settings page
+
+**⚙ Settings** (top right on the home screen and in the lobby; **Esc** or the ⚙ under your role during a match) holds the sound, which is yours and remembered in your browser: master, music and effects volume, and the music on or off (**M** switches it anywhere). During a match it also has **◀ Leave the game** (back to the main menu) and, for whoever runs the lobby, **■ Stop the game** (click twice: it ends the night and brings everyone back to the lobby).
+
+**Rules of the night** open from the lobby's **Change the rules…** link (**All the rules…** for other players, who can read them but not change them). Only the player who runs the lobby changes them, before the night begins: hour length, grace period, length of the night, the Witching Hour, when dinner is served (first dinner, how often, how many), discussion and voting time, walking and ghost speed, room size, wax burn, candlelight reach, snuff time, snuff and kill cooldowns, and how far snuffs and kills are heard. **Back to the defaults** restores the server's config.
+
+Every new lobby starts from the server's config (`server/lastcandle.json`); the rules page never writes to that file.
 
 ### Server options
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `-addr` | `:8080` | Listen address; if the port is taken, the next free one is used |
+| `-dev` | off | Allow sandbox matches from `?dev` URLs (on in `make dev-server`) |
 | `-portfile` | none | Write the port in use to this file (used by `make dev-server`) |
 | `-static` | `../client/dist` | Built client to serve (skipped if missing) |
 | `-origins` | `localhost:*,127.0.0.1:*` | Extra WebSocket origins allowed (same-host is always allowed) |
 | `LASTCANDLE_HOUR_SECONDS` | `60` | Real seconds per in-game hour |
-| `LASTCANDLE_DISCUSS_SECONDS` | `50` | Meeting discussion time |
+| `LASTCANDLE_DISCUSS_SECONDS` | `30` | Meeting discussion time |
 
 ## How to play
 
@@ -68,10 +74,12 @@ The night runs from 10 PM to 6 AM. Dinner is served at midnight, 2 AM and 4 AM, 
 | Key | Action |
 | --- | --- |
 | WASD / arrows | Move |
+| Mouse | Hold the left button to walk toward the cursor, or click to walk to a spot (finds the way through doors; a movement key cancels) |
 | E (hold) | Refill wax at a hearth, relight your candle, search for pages, lay pages on the altar, read the will, relight a cold hearth (needs two) |
 | R | Report a body |
 | G | Call a séance at the dining table (costs 60 wax, once per game) |
 | Enter | Chat (meetings, or ghost chat when dead) |
+| M | Music on or off (also the button at the top right of the menus; remembered) |
 | **Host:** Q (hold) | Snuff the candle of the guest beside you |
 | **Host:** Space | Kill a guest whose candle is out and who stands in no one else's light |
 | **Host:** 1 / 2 | Sabotage: draft (room's candles lose wax) / turn the nearest hearth cold |
@@ -79,9 +87,9 @@ The night runs from 10 PM to 6 AM. Dinner is served at midnight, 2 AM and 4 AM, 
 | **Ghost:** K | Knock (living players hear it, with direction) |
 | **Ghost:** E at a mirror | Write a word on the glass |
 
-Each player colour comes with its own pixel-art character: the Colonel, the Gentleman, the Widow, the Poet, the Physician, the Governess, the Clergyman, the Heiress, the Inventor and the Gambler. Bots are named after the character they are dressed as.
+Choose your character in the lobby; a character another player holds is taken, picking a bot's swaps with it, and your last pick is offered again at the next party. Each player colour comes with its own pixel-art character: the Colonel, the Gentleman, the Widow, the Poet, the Physician, the Governess, the Clergyman, the Heiress, the Inventor and the Gambler. Bots are named after the character they are dressed as.
 
-Clues to watch for: coloured wax drips show recent paths, smoke drifts away from where a snuffer stood, and in a mirror the Host's reflection lags half a second behind.
+Clues to watch for: coloured wax drips show recent paths, smoke drifts away from where a snuffer stood, and in a mirror the Host's reflection lags half a second behind. Every character has a voice of their own (babble, not words): it speaks their chat lines, greets you when you pick them, and cries out when they call a meeting or lose their candle. Listen too: you hear the footsteps of everyone you can see (wood and stone floors sound different), and a candle being snuffed or a struggle in the dark carries through walls to anyone within 9 tiles (`hearRange` in the config).
 
 ## How it is built
 
@@ -95,15 +103,12 @@ client/                      TypeScript + Phaser 3, bundled with Vite
   src/session.ts             Connection state, client-side prediction and reconciliation
   src/scene.ts               Rendering: baked map, darkness render texture, raycast candlelight, character sprites
   src/sprites.ts             Procedural pixel-art characters: 10 costumes, idle and walk cycles in 3 directions
-<<<<<<< Updated upstream
-=======
   src/roomart.ts             Pixel-art interiors: per-room floors, wallpaper, wall decor and furniture (decoration only)
   src/music.ts               The 8-bit theme, synthesized live: two pulse voices, triangle bass, noise drums
   src/voice.ts               Character voices: wordless 8-bit babble, a different voice for each character
   src/landing.ts             Pixel-art storm behind the menus: the manor on its hill, mountains, parallax layers, fog, rain, lightning
   src/loading.ts             The loading screen before each night: the manor door in the rain, your character on the steps
   src/reveal.ts              Story art: the Guest or Host card at nightfall, and the verdict (cellar or table) after each meeting
->>>>>>> Stashed changes
   src/ui.ts                  HTML screens: lobby, HUD, meetings, mirror view, end screen
 ```
 
@@ -116,3 +121,10 @@ client/                      TypeScript + Phaser 3, bundled with Vite
 ## Not in this prototype yet
 
 From the design doc: optional roles (Medium, Butler, Physician, Doppelgänger, Widow), portraits and the guestbook, the locked-wing and whispers sabotages, proximity voice, accounts and progression, replays, and mobile controls.
+
+## Roadmap
+
+- Configurable Setting
+- Settings
+- Art design
+- Extend with a outdoor area like a light house
