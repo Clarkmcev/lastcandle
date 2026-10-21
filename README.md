@@ -26,6 +26,25 @@ If port 8080 is already in use, the server moves to the next free port (8081, 80
 
 Playing alone? Add bots in the lobby. At least 3 players (or bots) are needed.
 
+<<<<<<< Updated upstream
+=======
+### Deploying
+
+To host it on the internet (Fly.io, one machine, your own domain), see [DEPLOY.md](DEPLOY.md). `make docker-run` runs the production image locally first.
+
+### Developer mode
+
+`make dev-server` starts the server with `-dev`. Open the client with `?dev` and it skips the lobby and drops you into an empty sandbox match:
+
+| URL | What you get |
+| --- | --- |
+| `http://localhost:5173/?dev` | You alone, as a guest |
+| `http://localhost:5173/?dev=host` | You alone, as the Host, with no kill cooldown |
+| `http://localhost:5173/?dev=host&bots=3` | You as the Host, plus 3 bot guests to snuff and kill |
+
+A sandbox match has no grace period and never ends. When a real match would end (dawn, the will read, a win), a `[dev]` toast says so and play carries on; at dawn the night starts over. Bots are always guests, so nothing hunts you. A server started without `-dev` refuses sandbox matches.
+
+>>>>>>> Stashed changes
 `make test` runs the Go tests (rules, a full bot match, a WebSocket lobby-to-match test) and the TypeScript type check.
 
 ### Server options
@@ -76,6 +95,15 @@ client/                      TypeScript + Phaser 3, bundled with Vite
   src/session.ts             Connection state, client-side prediction and reconciliation
   src/scene.ts               Rendering: baked map, darkness render texture, raycast candlelight, character sprites
   src/sprites.ts             Procedural pixel-art characters: 10 costumes, idle and walk cycles in 3 directions
+<<<<<<< Updated upstream
+=======
+  src/roomart.ts             Pixel-art interiors: per-room floors, wallpaper, wall decor and furniture (decoration only)
+  src/music.ts               The 8-bit theme, synthesized live: two pulse voices, triangle bass, noise drums
+  src/voice.ts               Character voices: wordless 8-bit babble, a different voice for each character
+  src/landing.ts             Pixel-art storm behind the menus: the manor on its hill, mountains, parallax layers, fog, rain, lightning
+  src/loading.ts             The loading screen before each night: the manor door in the rain, your character on the steps
+  src/reveal.ts              Story art: the Guest or Host card at nightfall, and the verdict (cellar or table) after each meeting
+>>>>>>> Stashed changes
   src/ui.ts                  HTML screens: lobby, HUD, meetings, mirror view, end screen
 ```
 

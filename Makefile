@@ -1,6 +1,6 @@
 # Last Candle: Go game server + TypeScript/Phaser web client.
 
-.PHONY: install dev-server dev-client build test run
+.PHONY: install dev-server dev-client build test run docker docker-run launch deploy
 
 install:
 	cd client && npm install
@@ -28,3 +28,26 @@ build:
 # Production-style: one binary serves the built client and the game on $(PORT).
 run: build
 	cd server && ./lastcandle -addr :$(PORT)
+
+# The production image (see DEPLOY.md), and a local run of it on :8080.
+docker:
+	docker build -t lastcandle .
+
+docker-run: docker
+	docker run --rm -p $(PORT):8080 lastcandle
+
+# Fly.io (see DEPLOY.md). `fly` is found on the PATH, or where its
+# installer puts it. Override the app name or region, e.g.
+#   make launch FLY_APP=lastcandle-clark FLY_REGION=ams
+FLY ?= $(shell command -v fly 2>/dev/null || echo $(HOME)/.fly/bin/fly)
+FLY_APP ?= lastcandle
+FLY_REGION ?= cdg
+
+# Create the app on Fly.io once, from the fly.toml in this repo, without
+# deploying yet.
+launch:
+	$(FLY) launch --no-deploy --copy-config --ha=false --name $(FLY_APP) --region $(FLY_REGION)
+
+# Deploy to Fly.io on one machine (lobbies live in memory).
+deploy:
+	$(FLY) deploy --ha=false

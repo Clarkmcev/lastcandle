@@ -154,3 +154,159 @@ func TestOwnerChangesRulesMidMatch(t *testing.T) {
 		t.Fatalf("the settings page should show the new speed, got %v", v)
 	}
 }
+<<<<<<< Updated upstream
+=======
+
+func TestChoosingCharacters(t *testing.T) {
+	hub := NewHub(game.DefaultConfig(), []string{"*"})
+	srv := httptest.NewServer(hub.Handler(""))
+	defer srv.Close()
+
+	// Ada asks for the Widow's colour when she arrives.
+	a := dial(t, srv, "name=Ada&color=%233fae5a")
+	code := a.waitFor("welcome")["code"].(string)
+	b := dial(t, srv, "room="+code+"&name=Bea&color=%233fae5a") // the same: already taken
+	b.waitFor("welcome")
+	players := func(l map[string]any) map[string]map[string]any {
+		out := map[string]map[string]any{}
+		for _, p := range l["players"].([]any) {
+			pm := p.(map[string]any)
+			out[pm["name"].(string)] = pm
+		}
+		return out
+	}
+	l := players(b.waitFor("lobby"))
+	if l["Ada"]["color"] != "#3fae5a" || l["Bea"]["color"] == "#3fae5a" {
+		t.Fatalf("Ada should have the colour she asked for and Bea another: %v", l)
+	}
+
+	// Bea cannot take Ada's character, but can take a bot's, and the bot
+	// takes Bea's old one and its name.
+	a.send(map[string]any{"t": "addBot"})
+	a.waitFor("lobby")
+	bea := l["Bea"]["color"].(string)
+	b.send(map[string]any{"t": "pick", "color": "#3fae5a"})
+	if c := players(b.waitFor("lobby"))["Bea"]["color"]; c != bea {
+		t.Fatalf("Bea took Ada's character: %v", c)
+	}
+	l = players(b.waitFor("lobby"))
+	var bot map[string]any
+	for _, p := range l {
+		if p["bot"] == true {
+			bot = p
+		}
+	}
+	botColor := bot["color"].(string)
+	b.send(map[string]any{"t": "pick", "color": botColor})
+	l = players(b.waitFor("lobby"))
+	if l["Bea"]["color"] != botColor {
+		t.Fatalf("Bea should have the bot's character, has %v", l["Bea"]["color"])
+	}
+	for name, p := range l {
+		if p["bot"] == true && (p["color"] != bea || name != botNames[slices.Index(colors, bea)]) {
+			t.Fatalf("the bot should take Bea's old character and its name: %s %v", name, p["color"])
+		}
+	}
+}
+
+func TestOwnerStopsTheMatch(t *testing.T) {
+	hub := NewHub(game.DefaultConfig(), []string{"*"})
+	srv := httptest.NewServer(hub.Handler(""))
+	defer srv.Close()
+
+	a := dial(t, srv, "name=Ada")
+	code := a.waitFor("welcome")["code"].(string)
+	b := dial(t, srv, "room="+code+"&name=Bea")
+	b.waitFor("welcome")
+	a.send(map[string]any{"t": "addBot"})
+	a.send(map[string]any{"t": "start"})
+	b.waitFor("start")
+
+	// Skip lobby updates from before the match: its start sends one in the
+	// playing state.
+	for _, c := range []*testConn{a, b} {
+		for c.waitFor("lobby")["state"] != "playing" {
+		}
+	}
+	// A guest cannot stop it: a settings change afterwards still finds the
+	// match in progress.
+	b.send(map[string]any{"t": "stop"})
+	a.send(map[string]any{"t": "settings", "values": map[string]any{"speed": 5}})
+	for _, c := range []*testConn{a, b} {
+		if st := c.waitFor("lobby")["state"]; st != "playing" {
+			t.Fatalf("a guest stopped the match: %v", st)
+		}
+	}
+	// The owner can, and everyone is back in the lobby.
+	a.send(map[string]any{"t": "stop"})
+	for _, c := range []*testConn{a, b} {
+		l := c.waitFor("lobby")
+		if l["state"] != "lobby" {
+			t.Fatalf("after the stop the room should be in its lobby, is %v", l["state"])
+		}
+		if n := len(l["players"].([]any)); n != 3 {
+			t.Fatalf("everyone should still be in the lobby, got %d", n)
+		}
+	}
+}
+
+func TestRoomLimit(t *testing.T) {
+	hub := NewHub(game.DefaultConfig(), []string{"*"})
+	hub.SetLimits(1, 0)
+	srv := httptest.NewServer(hub.Handler(""))
+	defer srv.Close()
+
+	a := dial(t, srv, "name=Ada")
+	code := a.waitFor("welcome")["code"].(string)
+	b := dial(t, srv, "name=Bea")
+	if e := b.waitFor("error"); !strings.Contains(e["text"].(string), "full") {
+		t.Fatalf("a second room should be refused, got %v", e)
+	}
+	// Joining the open room still works.
+	c := dial(t, srv, "room="+code+"&name=Cy")
+	c.waitFor("welcome")
+}
+
+func TestMatchLimit(t *testing.T) {
+	hub := NewHub(game.DefaultConfig(), []string{"*"})
+	hub.SetLimits(0, 1)
+	srv := httptest.NewServer(hub.Handler(""))
+	defer srv.Close()
+
+	owner := func(name string) *testConn {
+		c := dial(t, srv, "name="+name)
+		c.waitFor("welcome")
+		c.send(map[string]any{"t": "addBot"})
+		c.send(map[string]any{"t": "addBot"})
+		return c
+	}
+	a, b := owner("Ada"), owner("Bea")
+	a.send(map[string]any{"t": "start"})
+	a.waitFor("start")
+
+	// The only slot is taken: Bea is told to wait.
+	b.send(map[string]any{"t": "start"})
+	for {
+		if e := b.waitFor("event"); e["kind"] == "toast" {
+			if !strings.Contains(e["text"].(string), "Too many games") {
+				t.Fatalf("unexpected toast %v", e)
+			}
+			break
+		}
+	}
+
+	// Stopping Ada's match frees the slot, once and only once.
+	a.send(map[string]any{"t": "stop"})
+	for a.waitFor("lobby")["state"] != "lobby" {
+	}
+	a.send(map[string]any{"t": "stop"}) // not playing: no second release
+	b.send(map[string]any{"t": "start"})
+	b.waitFor("start")
+	hub.mu.Lock()
+	n := hub.matches
+	hub.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("one match should be running, the hub counts %d", n)
+	}
+}
+>>>>>>> Stashed changes

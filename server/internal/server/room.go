@@ -85,6 +85,7 @@ type Room struct {
 	owner   string
 	match   *game.Match
 	state   string // lobby, playing, ended
+	slot    bool   // whether this room holds one of the hub's match slots
 	// cfg is this room's rules: the server's config, as changed by the
 	// owner on the settings page.
 	cfg game.Config
@@ -118,6 +119,7 @@ func (r *Room) run() {
 		if r.onlineHumans() > 0 {
 			emptySince = time.Now()
 		} else if time.Since(emptySince) > 30*time.Second {
+			r.releaseSlot()
 			r.hub.remove(r)
 			r.drain()
 			return
@@ -354,6 +356,32 @@ func (r *Room) changeSettings(values map[string]float64) {
 	r.broadcastLobby()
 }
 
+<<<<<<< Updated upstream
+=======
+type character struct {
+	Color string `json:"color"`
+	Name  string `json:"name"`
+}
+
+// characters lists every character a player can choose, by colour.
+func characters() []character {
+	out := make([]character, len(colors))
+	for i, c := range colors {
+		out[i] = character{c, botNames[i]}
+	}
+	return out
+}
+
+// backToLobby ends the match and returns the room to its lobby; players
+// who have left for good are dropped.
+func (r *Room) backToLobby() {
+	r.releaseSlot()
+	r.state, r.match = "lobby", nil
+	r.members = slices.DeleteFunc(r.members, func(x *member) bool { return !x.bot && x.client == nil })
+	r.broadcastLobby()
+}
+
+>>>>>>> Stashed changes
 func clamp1(v float64) float64 {
 	if v > 1 {
 		return 1
@@ -402,6 +430,9 @@ func (r *Room) start(c *Client) {
 		c.push(map[string]string{"t": "event", "kind": "toast", "text": "Add players or bots: at least 3 are needed"})
 		return
 	}
+	if !r.takeSlot(c) {
+		return
+	}
 	var seats []game.Seat
 	for _, m := range r.members {
 		if m.bot || m.client != nil {
@@ -427,6 +458,9 @@ func (r *Room) startDev(c *Client, role string) {
 		c.push(map[string]string{"t": "error", "text": "Developer mode is off. Start the server with -dev (make dev-server does)."})
 		return
 	}
+	if !r.takeSlot(c) {
+		return
+	}
 	var seats []game.Seat
 	for _, m := range r.members {
 		if m.bot || m.client != nil {
@@ -450,6 +484,28 @@ func (r *Room) startDev(c *Client, role string) {
 	r.broadcastLobby() // the settings page now shows the match's rules
 }
 
+// takeSlot reserves a match slot on the hub before a match starts, telling
+// the owner when every slot is in use.
+func (r *Room) takeSlot(c *Client) bool {
+	if r.slot {
+		return true
+	}
+	if !r.hub.acquireMatch() {
+		c.push(map[string]string{"t": "event", "kind": "toast", "text": "Too many games are running right now. Try again in a few minutes."})
+		return false
+	}
+	r.slot = true
+	return true
+}
+
+// releaseSlot gives the room's match slot back once its match is over.
+func (r *Room) releaseSlot() {
+	if r.slot {
+		r.slot = false
+		r.hub.releaseMatch()
+	}
+}
+
 func (r *Room) tick() {
 	r.match.Tick()
 	r.flushEvents()
@@ -460,6 +516,7 @@ func (r *Room) tick() {
 	}
 	if r.match.Phase == game.PhaseEnded {
 		r.state = "ended"
+		r.releaseSlot()
 		r.broadcast(r.match.EndView())
 		r.broadcastLobby()
 		log.Printf("room %s: %s won", r.code, r.match.Winner)
