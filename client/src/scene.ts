@@ -101,8 +101,16 @@ export class GameScene extends Phaser.Scene {
     this.dynG = this.add.graphics().setDepth(4);
     this.fxG = this.add.graphics().setDepth(4.9);
     this.eraser = this.make.graphics({}, false);
-    this.dark = this.add.renderTexture(0, 0, this.scale.width, this.scale.height).setOrigin(0).setScrollFactor(0).setDepth(10);
-    this.scale.on("resize", (size: Phaser.Structs.Size) => this.dark.resize(size.width, size.height));
+    // The darkness covers the screen. RenderTexture.resize leaves it drawn at
+    // the wrong size and place, so a resized window gets a new one.
+    const makeDark = () => this.add.renderTexture(0, 0, this.scale.width, this.scale.height).setOrigin(0).setScrollFactor(0).setDepth(10);
+    this.dark = makeDark();
+    const onResize = () => {
+      this.dark.destroy();
+      this.dark = makeDark();
+    };
+    this.scale.on("resize", onResize);
+    this.events.once("shutdown", () => this.scale.off("resize", onResize));
 
     const kb = this.input.keyboard!;
     const k = (code: string) => kb.addKey(code, false);
