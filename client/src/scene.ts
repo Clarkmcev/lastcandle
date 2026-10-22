@@ -4,7 +4,7 @@ import type { Vec } from "./protocol";
 import { ART, paintManor } from "./roomart";
 import * as sfx from "./sfx";
 import { dist } from "./world";
-import { DIRS, FRAMES_PER_DIR, FRAME_H, FRAME_W, IDLE_FRAMES, WALK_FRAMES, frameIndex, sheet } from "./sprites";
+import { DIRS, FRAMES_PER_DIR, FRAME_H, FRAME_W, IDLE_FRAMES, WALK_FRAMES, fidgetIndex, frameIndex, sheet } from "./sprites";
 
 export const TS = 32; // pixels per tile
 // The camera's zoom. Art pixels are 2 world pixels, so 1.5 makes each one
@@ -45,7 +45,11 @@ interface Motion {
   y: number;
   face: Facing;
   movingUntil: number;
+  stillSince: number;
 }
+
+// Standing still this long starts the fidget animation.
+const FIDGET_AFTER = 3000;
 
 interface Light {
   x: number;
@@ -445,11 +449,11 @@ export class GameScene extends Phaser.Scene {
     const draw = (id: string, x: number, y: number, lit: boolean, ghost: boolean, self: boolean) => {
       seen.add(id);
       const px = x * TS, py = y * TS;
-      const { face, moving } = this.motionOf(id, x, y, self, time);
+      const { face, moving, fidget } = this.motionOf(id, x, y, self, time);
       this.footsteps(id, x, y, ghost, self, me);
       const key = this.character(s.color(id));
       const dir = face === "left" || face === "right" ? "side" : face;
-      const anim = `${key}:${dir}:${moving && !ghost ? "walk" : "idle"}`;
+      const anim = `${key}:${dir}:${moving && !ghost ? "walk" : fidget ? "fidget" : "idle"}`;
 
       let sprite = this.sprites.get(id);
       if (!sprite) {
@@ -460,12 +464,19 @@ export class GameScene extends Phaser.Scene {
       sprite.setFlipX(face === "left").setVisible(true);
       // Feet sit just below the character's position; deeper rows draw on top.
       let footY = py + 10;
+      // A walk hops: high as the legs pass (frames 0 and 2), squashed a
+      // little as each foot lands.
+      const up = moving && !ghost ? Math.abs(Math.cos(sprite.anims.getProgress() * Math.PI * 2)) : 1;
+      const hop = moving && !ghost ? up * 5 : 0;
+      const squash = moving && !ghost ? (1 - up) * 0.14 : 0;
+      sprite.setScale(2 + squash, 2 - squash);
+      footY -= hop;
       if (ghost) {
         footY += -6 + Math.sin(time * 0.004 + px * 0.01) * 3;
         sprite.setTint(0xcfe6ff).setAlpha(0.5);
       } else {
         sprite.clearTint().setAlpha(1);
-        g.fillStyle(0x000000, 0.35).fillEllipse(px, py + 9, 22, 8);
+        g.fillStyle(0x000000, 0.35).fillEllipse(px, py + 9, 22 - hop, 8 - hop / 3);
         if (self) g.lineStyle(1, 0xffffff, 0.35).strokeEllipse(px, py + 9, 28, 11);
       }
       // You always see yourself; everyone else lives under the darkness.
@@ -525,7 +536,17 @@ export class GameScene extends Phaser.Scene {
     for (const dir of DIRS) {
       const frames = (walk: boolean, n: number) => Array.from({ length: n }, (_, f) => ({ key, frame: frameIndex(dir, walk, f) }));
       this.anims.create({ key: `${key}:${dir}:idle`, frames: frames(false, IDLE_FRAMES), frameRate: 2, repeat: -1 });
-      this.anims.create({ key: `${key}:${dir}:walk`, frames: frames(true, WALK_FRAMES), frameRate: 9, repeat: -1 });
+      this.anims.create({ key: `${key}:${dir}:walk`, frames: frames(true, WALK_FRAMES), frameRate: 10, repeat: -1 });
+      // Glance left, glance right, blink, shift weight, with rests between.
+      const rest = { key, frame: frameIndex(dir, false, 0) };
+      const fid = (f: number) => ({ key, frame: fidgetIndex(dir, f) });
+      this.anims.create({
+        key: `${key}:${dir}:fidget`,
+        frames: [rest, fid(0), fid(0), rest, fid(1), fid(1), rest, rest, fid(2), rest, fid(3), fid(3), fid(3), rest],
+        frameRate: 4,
+        repeat: -1,
+        repeatDelay: 1500,
+      });
     }
     return key;
   }
@@ -535,7 +556,7 @@ export class GameScene extends Phaser.Scene {
   private motionOf(id: string, x: number, y: number, self: boolean, now: number) {
     let m = this.motion.get(id);
     if (!m) {
-      m = { x, y, face: "down", movingUntil: 0 };
+      m = { x, y, face: "down", movingUntil: 0, stillSince: now };
       this.motion.set(id, m);
     }
     let dx = x - m.x, dy = y - m.y;
@@ -546,7 +567,9 @@ export class GameScene extends Phaser.Scene {
     }
     m.x = x;
     m.y = y;
-    return { face: m.face, moving: now < m.movingUntil };
+    const moving = now < m.movingUntil;
+    if (moving) m.stillSince = now;
+    return { face: m.face, moving, fidget: !moving && now - m.stillSince > FIDGET_AFTER };
   }
 
   // Plays a footstep each stride a character walks, panned and fading with

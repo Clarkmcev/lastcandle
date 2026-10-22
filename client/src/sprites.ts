@@ -10,7 +10,10 @@ export type Dir = "down" | "up" | "side";
 export const DIRS: Dir[] = ["down", "up", "side"];
 export const IDLE_FRAMES = 2;
 export const WALK_FRAMES = 4;
-export const FRAMES_PER_DIR = IDLE_FRAMES + WALK_FRAMES;
+// Fidget frames, played after standing still a while: glance left, glance
+// right, blink, shift weight.
+export const FIDGET_FRAMES = 4;
+export const FRAMES_PER_DIR = IDLE_FRAMES + WALK_FRAMES + FIDGET_FRAMES;
 
 // Same order as the server's palette in server/internal/server/room.go.
 const PALETTE = ["#e04848", "#3f7fe0", "#3fae5a", "#e0c33f", "#9b5de5", "#f08a2c", "#e8e4dc", "#f06fb0", "#2fb8b0", "#9a6a3a"];
@@ -82,12 +85,15 @@ export function lookFor(color: string): Look {
   return { costume: COSTUMES[i], coat: color, coatDark: shade(color, -0.35), coatLight: shade(color, 0.25), skin: SKIN[i], hair: HAIR[i] };
 }
 
-// paint draws one frame. kind/frame pick the pose: idle breathes, walk steps.
-function paint(look: Look, dir: Dir, kind: "idle" | "walk", frame: number): Pixels {
+// paint draws one frame. kind/frame pick the pose: idle breathes, walk
+// steps, fidget glances, blinks and shifts its weight.
+function paint(look: Look, dir: Dir, kind: "idle" | "walk" | "fidget", frame: number): Pixels {
   const p = new Pixels();
   const walk = kind === "walk";
-  const step = walk ? [0, 1, 0, -1][frame] : 0; // which leg is forward
-  const bob = walk ? (frame % 2 === 1 ? -1 : 0) : frame === 1 ? 1 : 0;
+  const fidget = kind === "fidget" ? frame : -1;
+  const step = walk ? [0, 1, 0, -1][frame] : fidget === 3 && dir !== "side" ? 1 : 0; // which leg is forward
+  // Up as the legs pass each other, down as a foot lands.
+  const bob = walk ? (frame % 2 === 0 ? -1 : 0) : frame === 1 && kind === "idle" ? 1 : 0;
   const side = dir === "side";
   const front = dir === "down";
 
@@ -158,13 +164,15 @@ function paint(look: Look, dir: Dir, kind: "idle" | "walk", frame: number): Pixe
     p.set(hx0, y(4), look.hair);
     p.set(hx1, y(4), look.hair);
   }
+  const glance = fidget === 0 ? -1 : fidget === 1 ? 1 : 0;
+  const eye = fidget === 2 ? shade(look.skin, -0.35) : EYE; // a blink
   if (front) {
-    p.set(6, y(6), EYE);
-    p.set(9, y(6), EYE);
+    p.set(6 + glance, y(6), eye);
+    p.set(9 + glance, y(6), eye);
     p.set(7, y(8), shade(look.skin, -0.2));
     p.set(8, y(8), shade(look.skin, -0.2));
   } else if (side) {
-    p.set(9, y(6), EYE);
+    p.set(9 + Math.min(0, glance), y(6), eye);
     p.set(10, y(7), shade(look.skin, -0.15));
   }
 
@@ -277,7 +285,8 @@ function costume(p: Pixels, look: Look, dir: Dir, y: (v: number) => number, hx0:
 }
 
 // sheet paints every frame for one colour into a single strip:
-// for each direction, IDLE_FRAMES idle frames then WALK_FRAMES walk frames.
+// for each direction, IDLE_FRAMES idle frames, WALK_FRAMES walk frames, then
+// FIDGET_FRAMES fidget frames.
 export function sheet(color: string): HTMLCanvasElement {
   const look = lookFor(color);
   const cv = document.createElement("canvas");
@@ -286,8 +295,8 @@ export function sheet(color: string): HTMLCanvasElement {
   const ctx = cv.getContext("2d")!;
   DIRS.forEach((dir, di) => {
     for (let f = 0; f < FRAMES_PER_DIR; f++) {
-      const walk = f >= IDLE_FRAMES;
-      const px = paint(look, dir, walk ? "walk" : "idle", walk ? f - IDLE_FRAMES : f);
+      const fid = IDLE_FRAMES + WALK_FRAMES;
+      const px = f >= fid ? paint(look, dir, "fidget", f - fid) : f >= IDLE_FRAMES ? paint(look, dir, "walk", f - IDLE_FRAMES) : paint(look, dir, "idle", f);
       const ox = (di * FRAMES_PER_DIR + f) * FRAME_W;
       px.grid.forEach((row, yy) =>
         row.forEach((c, xx) => {
@@ -303,6 +312,10 @@ export function sheet(color: string): HTMLCanvasElement {
 
 export function frameIndex(dir: Dir, walk: boolean, frame: number) {
   return DIRS.indexOf(dir) * FRAMES_PER_DIR + (walk ? IDLE_FRAMES + frame : frame);
+}
+
+export function fidgetIndex(dir: Dir, frame: number) {
+  return DIRS.indexOf(dir) * FRAMES_PER_DIR + IDLE_FRAMES + WALK_FRAMES + frame;
 }
 
 const walkStrips = new Map<string, string>();

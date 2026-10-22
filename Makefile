@@ -1,6 +1,6 @@
 # Last Candle: Go game server + TypeScript/Phaser web client.
 
-.PHONY: install dev-server dev-client build test run docker docker-run docker-dev launch secrets deploy
+.PHONY: install dev-server dev-client build test run docker docker-run docker-dev launch secrets rooms-dev rooms-prod deploy
 
 install:
 	cd client && npm install
@@ -40,9 +40,6 @@ docker-run: docker
 docker-dev: docker
 	docker run --rm -p $(PORT):8080 --env-file .env.dev lastcandle -dev
 
-# Fly.io (see DEPLOY.md). `fly` is found on the PATH, or where its
-# installer puts it. Override the app name or region, e.g.
-#   make launch FLY_APP=lastcandle-clark FLY_REGION=ams
 FLY ?= $(shell command -v fly 2>/dev/null || echo $(HOME)/.fly/bin/fly)
 FLY_APP ?= lastcandle
 FLY_REGION ?= cdg
@@ -59,3 +56,11 @@ deploy:
 # Send .env.prod to Fly.io as secrets (the app restarts with them).
 secrets:
 	grep -v '^#' .env.prod | grep . | $(FLY) secrets import
+
+# List every open room: on the local dev server on $(PORT), or on Fly.io
+# with .env.prod's token.
+rooms-dev:
+	@curl -sSf localhost:$(PORT)/rooms | python3 -m json.tool
+
+rooms-prod:
+	@set -a && . ./.env.prod && set +a && curl -sSf -H "Authorization: Bearer $$LASTCANDLE_ADMIN_TOKEN" https://$(FLY_APP).fly.dev/rooms | python3 -m json.tool

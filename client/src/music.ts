@@ -63,6 +63,41 @@ const SONGS: Record<string, SongDef> = {
     ],
   },
 
+  // The role card, for the Host: a slow pact with the house, a heartbeat
+  // and a tolling bell over D Phrygian.
+  pact: {
+    name: "The Pact",
+    bpm: 66,
+    beats: 4,
+    bars: 8,
+    chords: [["D3 F3 A3", "D1"], ["Eb3 G3 Bb3", "Eb1"], ["D3 F3 A3", "D1"], ["C#3 E3 G3 Bb3", "A1"]],
+    pad: { wave: 0.125, vol: 0.03 },
+    bass: { hits: [0, 8], len: 6, vol: 0.36 },
+    melody: { from: 4, bars: "D5:6 Eb5:2 D5:8 | -:4 A4:4 Bb4:4 A4:4 | D5:4 F5:4 Eb5:4 D5:4 | C#5:12 -:4", wave: 0.125, vol: 0.07, vibrato: true },
+    drums: [{ kick: [0, 3], bell: "A4" }],
+  },
+
+  // The role card, for a Guest: a bright welcome to the party, before the
+  // night shows what it is.
+  welcome: {
+    name: "Welcome to Ravenscroft",
+    bpm: 124,
+    beats: 4,
+    bars: 8,
+    chords: [["C4 E4 G4 C5", "C2"], ["A3 C4 E4 A4", "A1"], ["F3 A3 C4 F4", "F1"], ["G3 B3 D4 G4", "G1"]],
+    arp: { pattern: [0, 1, 2, 3, 2, 1, 0, 1, 0, 1, 2, 3, 2, 1, 2, 1], wave: 0.25, vol: 0.05 },
+    bass: { hits: [0, 4, 8, 12], len: 2, vol: 0.38 },
+    melody: {
+      from: 0,
+      bars:
+        "E5:4 G5:4 E5:2 D5:2 C5:4 | A4:4 C5:4 E5:8 | F5:4 E5:2 D5:2 C5:4 A4:4 | B4:4 D5:4 G5:8 |" +
+        "G5:4 E5:2 G5:2 C6:8 | A5:4 G5:2 E5:2 C5:8 | F5:2 G5:2 A5:4 G5:4 F5:4 | D5:4 B4:4 G4:4 -:4",
+      wave: 0.5,
+      vol: 0.1,
+    },
+    drums: [{ kick: [0, 8], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] }],
+  },
+
   // A music box among the shelves, slow and dusty.
   library: {
     name: "Dust and Ink",

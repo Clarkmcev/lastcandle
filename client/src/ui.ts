@@ -46,6 +46,7 @@ export class UI {
   private loadingArt = new LoadingArt($<HTMLCanvasElement>("loadingCanvas"));
   private loadingTimer = 0;
   private revealArt?: RevealArt;
+  private revealing = false; // the role card is up: its music, not the room's
   private resultArt?: ResultArt;
   private resultShown = "";
   private where: "home" | "lobby" | "game" = "home";
@@ -577,7 +578,10 @@ export class UI {
     this.revealArt = new RevealArt($("reveal").querySelector("canvas")!);
     this.revealArt.show(color, host);
     show("reveal", true);
+    this.revealing = true;
+    playSong(host ? "pact" : "welcome");
     const close = () => {
+      this.revealing = false;
       clearTimeout(timer);
       document.removeEventListener("keydown", close);
       this.revealArt?.stop();
@@ -638,7 +642,7 @@ export class UI {
     const room = s.world?.roomAt(s.pos.x, s.pos.y) ?? -1;
     if (room >= 0) {
       const r = s.world!.view.rooms[room];
-      playSong(r.id);
+      if (!this.revealing) playSong(r.id);
       this.showRoom(r.name);
     }
 
