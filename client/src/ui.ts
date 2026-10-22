@@ -705,6 +705,9 @@ export class UI {
       out.push("<b>E</b> relight from their candle");
     }
     if (!you.lit && you.wax <= 0) out.push("Your candle is spent. Find a lit hearth and hold <b>E</b>.");
+    w.view.switches.forEach((sw, i) => {
+      if (dist(sw.pos, me) <= 1.6) out.push(`<b>E</b> ${snap.lamps[i] ? "turn off" : "turn on"} the lamps`);
+    });
     if (snap.spots.some((sp) => !sp.s && dist(w.view.spots[sp.i], me) <= 1.2)) out.push("Hold <b>E</b> to search for pages of the will");
     if (snap.loose.some((l) => dist(l, me) <= 1.6)) out.push("<b>E</b> pick up the page");
     const atAltar = distToRect(w.view.altar, me);
@@ -909,6 +912,7 @@ export class UI {
     const volume = Math.max(0.15, 1 - Math.hypot(dx, y - s.pos.y) / 10);
     if (name === "snuff") sfx.snuff(dx / 8, volume);
     else if (name === "kill") sfx.kill(dx / 8, volume);
+    else if (name === "switch") sfx.click();
   }
 
   private knock(x: number, y: number) {

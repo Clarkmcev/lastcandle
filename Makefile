@@ -1,18 +1,17 @@
 # Last Candle: Go game server + TypeScript/Phaser web client.
 
-.PHONY: install dev-server dev-client build test run docker docker-run docker-dev launch deploy
+.PHONY: install dev-server dev-client build test run docker docker-run docker-dev launch secrets deploy
 
 install:
 	cd client && npm install
 
 # Development: run these two in separate terminals, then open http://localhost:5173
-# Short nights make testing quicker; override with HOUR=60 for the real pace.
+# Settings come from .env.dev (short nights, no limits); edit it to change them.
 # The server takes the next free port if PORT is busy, and the dev client
 # finds it through server/.lastcandle-port.
-HOUR ?= 20
 PORT ?= 8080
 dev-server:
-	cd server && LASTCANDLE_HOUR_SECONDS=$(HOUR) go run ./cmd/lastcandle -dev -addr :$(PORT) -portfile .lastcandle-port
+	set -a && . ./.env.dev && set +a && cd server && go run ./cmd/lastcandle -dev -addr :$(PORT) -portfile .lastcandle-port
 
 dev-client:
 	cd client && npm run dev
@@ -29,16 +28,17 @@ build:
 run: build
 	cd server && ./lastcandle -addr :$(PORT)
 
-# The production image (see DEPLOY.md), and a local run of it on :8080.
+# The production image (see DEPLOY.md), and a local run of it on :8080 with
+# .env.prod's settings when that file exists.
 docker:
 	docker build -t lastcandle .
 
 docker-run: docker
-	docker run --rm -p $(PORT):8080 lastcandle
+	docker run --rm -p $(PORT):8080 $(if $(wildcard .env.prod),--env-file .env.prod) lastcandle
 
-# The same image in developer mode (sandbox matches, /rooms), with short nights.
+# The same image in developer mode (sandbox matches, /rooms) with .env.dev.
 docker-dev: docker
-	docker run --rm -p $(PORT):8080 -e LASTCANDLE_HOUR_SECONDS=$(HOUR) lastcandle -dev
+	docker run --rm -p $(PORT):8080 --env-file .env.dev lastcandle -dev
 
 # Fly.io (see DEPLOY.md). `fly` is found on the PATH, or where its
 # installer puts it. Override the app name or region, e.g.
@@ -55,3 +55,7 @@ launch:
 # Deploy to Fly.io on one machine (lobbies live in memory).
 deploy:
 	$(FLY) deploy --ha=false
+
+# Send .env.prod to Fly.io as secrets (the app restarts with them).
+secrets:
+	grep -v '^#' .env.prod | grep . | $(FLY) secrets import

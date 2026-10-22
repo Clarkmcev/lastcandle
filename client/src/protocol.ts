@@ -27,6 +27,7 @@ export interface MapView {
   mirrors: Vec[];
   spots: Vec[];
   passages?: [Vec, Vec][];
+  switches: { pos: Vec; room: number }[]; // lamp switches, one per lit room
   altar: Rect;
   table: Rect;
 }
@@ -121,6 +122,7 @@ export interface Snapshot {
   smoke: { x: number; y: number; dx: number; dy: number; a: number }[];
   drips: { x: number; y: number; c: string; a: number }[];
   hearths: { lit: boolean; p?: number }[];
+  lamps: boolean[]; // per switch: its room is lit
   spots: { i: number; s?: boolean }[];
   loose: Vec[];
   altarPages: number;

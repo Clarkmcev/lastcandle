@@ -168,6 +168,7 @@ type Match struct {
 	Clock      float64
 	hour       int
 	Hearths    []*Hearth
+	Lamps      []float64 // per switch: seconds its room stays lit, 0 when off
 	Bodies     []*Body
 	Smoke      []*Smoke
 	Drips      []*Drip
@@ -232,6 +233,7 @@ func NewMatch(cfg Config, seats []Seat, seed int64) *Match {
 	for _, h := range m.Map.Hearths {
 		m.Hearths = append(m.Hearths, &Hearth{Pos: h, Lit: true})
 	}
+	m.Lamps = make([]float64, len(m.Map.Switches))
 	for _, s := range m.Map.Spots {
 		m.Spots = append(m.Spots, &Spot{Pos: s})
 	}
@@ -307,9 +309,16 @@ func (m *Match) Radius(p *Player) float64 {
 	return r
 }
 
-// inLight reports whether pos is lit by a hearth or by a candle other than
-// those carried by excluded players.
+// inLight reports whether pos is lit by a room's lamps, a hearth, or a
+// candle other than those carried by excluded players.
 func (m *Match) inLight(pos Vec, exclude func(*Player) bool) bool {
+	if r := m.Map.RoomAt(pos); r >= 0 {
+		for i, sw := range m.Map.Switches {
+			if sw.Room == r && m.Lamps[i] > 0 {
+				return true
+			}
+		}
+	}
 	for _, h := range m.Hearths {
 		if h.Lit && h.Pos.Dist(pos) <= m.Cfg.HearthRadius && m.Map.LineOfSight(h.Pos, pos) {
 			return true
@@ -711,6 +720,9 @@ func (m *Match) Tick() {
 		m.updateSnuff(p, dt)
 	}
 
+	for i, t := range m.Lamps {
+		m.Lamps[i] = math.Max(0, t-dt)
+	}
 	m.Smoke = expire(m.Smoke, dt, func(s *Smoke) *float64 { return &s.T })
 	m.Drips = expire(m.Drips, dt, func(d *Drip) *float64 { return &d.T })
 	for i, w := range m.words {
@@ -924,6 +936,17 @@ func (m *Match) instantInteract(p *Player) bool {
 					return true
 				}
 			}
+		}
+	}
+	for i, sw := range m.Map.Switches {
+		if sw.Pos.Dist(p.Pos) <= m.Cfg.InteractRange {
+			if m.Lamps[i] > 0 {
+				m.Lamps[i] = 0
+			} else {
+				m.Lamps[i] = m.Cfg.LampTime
+			}
+			m.sound("switch", sw.Pos)
+			return true
 		}
 	}
 	if !p.Lit && p.Wax > 0 && p.shock == 0 && m.nearFlame(p) {

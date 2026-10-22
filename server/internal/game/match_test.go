@@ -74,6 +74,12 @@ func TestEveryRoomAndObjectIsReachable(t *testing.T) {
 		for i, s := range mp.Spots {
 			reach(fmt.Sprint("page spot ", i), s, true)
 		}
+		for i, sw := range mp.Switches {
+			reach(fmt.Sprint("lamp switch ", i), sw.Pos, true)
+			if mp.RoomAt(sw.Pos) != sw.Room {
+				errorf("lamp switch %d is not in its room", i)
+			}
+		}
 		for i, p := range mp.Passages {
 			reach(fmt.Sprint("passage ", i, " start"), p[0], true)
 			reach(fmt.Sprint("passage ", i, " end"), p[1], true)
@@ -196,6 +202,40 @@ func TestNoKillInsideAnotherCandle(t *testing.T) {
 	witness.Pos = m.Map.Spawn
 	if msg := m.Press(host.ID, "kill"); msg != "" {
 		t.Fatalf("kill should work once the witness leaves: %s", msg)
+	}
+}
+
+func TestLampsStopKillsUntilTheyGoOut(t *testing.T) {
+	m, host, guests := newTestMatch(t, 5)
+	sw := m.Map.Switches[0]
+	r := m.Map.Rooms[sw.Room]
+	spot := tileCenter((r.X0+r.X1)/2, r.Y1) // far across the room from the switch
+	victim := guests[0]
+	victim.Pos, victim.Lit = spot, false
+	host.Pos, host.Lit = spot.Add(Vec{0.8, 0}), false
+	for _, g := range guests[1:] {
+		g.Pos = m.Map.Spawn
+	}
+
+	guests[1].Pos = sw.Pos
+	m.SetHold(guests[1].ID, "interact", true)
+	m.Tick()
+	m.SetHold(guests[1].ID, "interact", false)
+	guests[1].Pos = m.Map.Spawn
+	if !m.SnapshotFor(victim.ID).Lamps[0] {
+		t.Fatal("the switch should turn the lamps on")
+	}
+	if msg := m.Press(host.ID, "kill"); msg == "" {
+		t.Fatal("kill should fail in a room lit by its lamps")
+	}
+	for i := 0; i < int(m.Cfg.LampTime/m.Cfg.Tick)+2; i++ {
+		m.Tick()
+	}
+	if m.Lamps[0] > 0 {
+		t.Fatal("the lamps should go out on their own")
+	}
+	if msg := m.Press(host.ID, "kill"); msg != "" {
+		t.Fatalf("kill should work once the lamps are out: %s", msg)
 	}
 }
 

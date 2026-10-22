@@ -59,6 +59,7 @@ var Settings = []Setting{
 	layout(whole("roomHeight", "Room height", "The manor", "tiles", MinRoomHeight, MaxRoomSize, func(c *Config) *int { return &c.RoomHeight })),
 	num("burnPerSec", "Wax burned per second", "Candles", "", 0.1, 2, 0.1, func(c *Config) *float64 { return &c.BurnPerSec }),
 	num("fullRadius", "Candlelight reach", "Candles", "tiles", 2, 8, 0.5, func(c *Config) *float64 { return &c.FullRadius }),
+	num("lampTime", "Lamps stay on for", "Candles", "s", 5, 180, 5, func(c *Config) *float64 { return &c.LampTime }),
 	num("snuffTime", "Time to snuff a candle", "The Host", "s", 0.2, 5, 0.1, func(c *Config) *float64 { return &c.SnuffTime }),
 	num("snuffCD", "Wait between snuffs", "The Host", "s", 5, 90, 5, func(c *Config) *float64 { return &c.SnuffCD }),
 	num("killCD", "Wait between kills", "The Host", "s", 5, 90, 5, func(c *Config) *float64 { return &c.KillCD }),

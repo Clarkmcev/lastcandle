@@ -44,6 +44,13 @@ func (r Rect) Center() Vec {
 	return Vec{float64(r.X0+r.X1+1) / 2, float64(r.Y0+r.Y1+1) / 2}
 }
 
+// Switch turns on the lamps of one room. It sits on the floor tile below
+// the room's top wall, where the client draws its brass plate.
+type Switch struct {
+	Pos  Vec `json:"pos"`
+	Room int `json:"room"`
+}
+
 // Map is the static layout of Ravenscroft Manor.
 type Map struct {
 	W, H      int
@@ -53,6 +60,7 @@ type Map struct {
 	Mirrors   []Vec
 	Spots     []Vec
 	Passages  [][2]Vec
+	Switches  []Switch
 	Altar     Rect
 	Table     Rect
 	Spawn     Vec
@@ -223,6 +231,11 @@ func BuildManor(w, h int) *Map {
 	}
 	for _, s := range [][2]int{{5, 4}, {10, 8}, {2, 9}, {13, 5}, {6, 14}, {18, 9}, {40, 4}, {8, 30}, {36, 30}, {37, 39}, {44, 36}, {42, 17}} {
 		m.Spots = append(m.Spots, tileCenter(at(s[0], s[1])))
+	}
+	// Lamps in the rooms that have no hearth (the cellar keeps its dark).
+	for _, sw := range [][2]int{{29, 1}, {35, 1}, {18, 23}} { // Chapel, Nursery, Entrance Hall
+		x, y := at(sw[0], sw[1])
+		m.Switches = append(m.Switches, Switch{tileCenter(x, y), m.roomIndex[y*m.W+x]})
 	}
 	for _, p := range [][4]int{
 		{1, 10, 46, 10}, // Library <-> Nursery

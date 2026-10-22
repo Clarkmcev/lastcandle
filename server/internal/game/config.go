@@ -27,6 +27,7 @@ type Config struct {
 	FullRadius   float64 // candle light radius above half wax
 	OutRadius    float64 // what you see with no candle
 	HearthRadius float64
+	LampTime     float64 // how long a room's lamps stay on once switched on
 	ShareRange   float64
 	ShareBonus   float64
 
@@ -92,6 +93,7 @@ func DefaultConfig() Config {
 		FullRadius:     4,
 		OutRadius:      1,
 		HearthRadius:   5,
+		LampTime:       40,
 		ShareRange:     1.5,
 		ShareBonus:     1.3,
 		Speed:          4,

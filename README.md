@@ -48,11 +48,13 @@ A sandbox match has no grace period and never ends. When a real match would end 
 
 **⚙ Settings** (top right on the home screen and in the lobby; **Esc** or the ⚙ under your role during a match) holds the sound, which is yours and remembered in your browser: master, music and effects volume, and the music on or off (**M** switches it anywhere). During a match it also has **◀ Leave the game** (back to the main menu) and, for whoever runs the lobby, **■ Stop the game** (click twice: it ends the night and brings everyone back to the lobby).
 
-**Rules of the night** open from the lobby's **Change the rules…** link (**All the rules…** for other players, who can read them but not change them). Only the player who runs the lobby changes them, before the night begins: hour length, grace period, length of the night, the Witching Hour, when dinner is served (first dinner, how often, how many), discussion and voting time, walking and ghost speed, room size, wax burn, candlelight reach, snuff time, snuff and kill cooldowns, and how far snuffs and kills are heard. **Back to the defaults** restores the server's config.
+**Rules of the night** open from the lobby's **Change the rules…** link (**All the rules…** for other players, who can read them but not change them). Only the player who runs the lobby changes them, before the night begins: hour length, grace period, length of the night, the Witching Hour, when dinner is served (first dinner, how often, how many), discussion and voting time, walking and ghost speed, room size, wax burn, candlelight reach, how long lamps stay on, snuff time, snuff and kill cooldowns, and how far snuffs and kills are heard. **Back to the defaults** restores the server's config.
 
 Every new lobby starts from the server's config (`server/lastcandle.json`); the rules page never writes to that file.
 
 ### Server options
+
+Environment variables live in `.env.dev` (committed, loaded by `make dev-server` and `make docker-dev`) and `.env.prod` (gitignored because it holds the admin token; loaded by `make docker-run` and sent to Fly.io by `make secrets`).
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -92,7 +94,7 @@ The night runs from 10 PM to 6 AM. Dinner is served at midnight, 2 AM and 4 AM, 
 | --- | --- |
 | WASD / arrows | Move |
 | Mouse | Hold the left button to walk toward the cursor, or click to walk to a spot (finds the way through doors; a movement key cancels) |
-| E (hold) | Refill wax at a hearth, relight your candle, search for pages, lay pages on the altar, read the will, relight a cold hearth (needs two) |
+| E (hold) | Refill wax at a hearth, relight your candle, switch a room's lamps on or off, search for pages, lay pages on the altar, read the will, relight a cold hearth (needs two) |
 | R | Report a body |
 | G | Call a séance at the dining table (costs 60 wax, once per game) |
 | Enter | Chat (meetings, or ghost chat when dead) |
@@ -105,6 +107,8 @@ The night runs from 10 PM to 6 AM. Dinner is served at midnight, 2 AM and 4 AM, 
 | **Ghost:** E at a mirror | Write a word on the glass |
 
 Choose your character in the lobby; a character another player holds is taken, picking a bot's swaps with it, and your last pick is offered again at the next party. Each player colour comes with its own pixel-art character: the Colonel, the Gentleman, the Widow, the Poet, the Physician, the Governess, the Clergyman, the Heiress, the Inventor and the Gambler. Bots are named after the character they are dressed as.
+
+The Chapel, the Nursery and the Entrance Hall have a lamp switch (a brass plate on the top wall). **E** lights the whole room for 40 seconds (`lampTime`), and nobody can be killed in a lit room; anyone, the Host included, can switch it off again.
 
 Clues to watch for: coloured wax drips show recent paths, smoke drifts away from where a snuffer stood, and in a mirror the Host's reflection lags half a second behind. Every character has a voice of their own (babble, not words): it speaks their chat lines, greets you when you pick them, and cries out when they call a meeting or lose their candle. Listen too: you hear the footsteps of everyone you can see (wood and stone floors sound different), and a candle being snuffed or a struggle in the dark carries through walls to anyone within 9 tiles (`hearRange` in the config).
 

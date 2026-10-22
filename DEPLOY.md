@@ -113,15 +113,18 @@ is playing (`fly logs` shows rooms joining and starting).
 - **Size.** 256 MB of memory and a shared CPU are plenty for several
   parties at once. `fly scale memory 512` if you ever need more; never
   `fly scale count` above 1.
+- **Settings.** `.env.prod` (gitignored) holds the production settings and
+  the admin token. `make secrets` sends it to Fly as secrets, which restarts
+  the app; `make docker-run` runs the image locally with it.
 - **Game limits.** One server keeps at most 60 rooms open and 20 matches
   running at once, so a rush of games cannot max out the CPU. Past that,
-  new rooms are refused and Start asks the owner to wait. Change them with
-  `fly secrets set LASTCANDLE_MAX_ROOMS=… LASTCANDLE_MAX_MATCHES=…` (0 means
-  no limit). `/healthz` shows how many are in use, e.g.
+  new rooms are refused and Start asks the owner to wait. Change
+  `LASTCANDLE_MAX_ROOMS` and `LASTCANDLE_MAX_MATCHES` in `.env.prod` (0 means
+  no limit), then `make secrets`. `/healthz` shows how many are in use, e.g.
   `ok rooms=3 matches=1`.
-- **Room list.** Set a long random admin token once:
-  `fly secrets set LASTCANDLE_ADMIN_TOKEN=$(openssl rand -hex 32)`, and keep
-  a copy: Fly will not show it again. Then
+- **Room list.** `LASTCANDLE_ADMIN_TOKEN` in `.env.prod` is a long random
+  token (`openssl rand -hex 32` makes a new one; `make secrets` sends it).
+  Fly will not show it again, so `.env.prod` is your copy. Then
   `curl -H "Authorization: Bearer $TOKEN" https://<your-app>.fly.dev/rooms`
   lists every open room with its code. Without the secret, `/rooms` does not
   exist.

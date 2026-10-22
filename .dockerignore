@@ -4,3 +4,5 @@ client/dist
 server/lastcandle
 server/.lastcandle-port
 *.log
+.env*
+.secrets

@@ -367,6 +367,17 @@ export class GameScene extends Phaser.Scene {
     const g = this.dynG.clear();
     if (!snap) return;
 
+    // Lamp switches: a brass plate on the wall above, lever up when on.
+    view.switches.forEach((sw, i) => {
+      const x = sw.pos.x * TS, y = (sw.pos.y - 0.5) * TS - 12;
+      const on = snap.lamps[i];
+      g.fillStyle(0x6b4a1a).fillRect(x - 6, y - 8, 12, 16);
+      g.fillStyle(0xc99a3a).fillRect(x - 5, y - 7, 10, 14);
+      g.fillStyle(0xf3d27a).fillRect(x - 5, y - 7, 10, 1);
+      g.fillStyle(0x2a1a0a).fillRect(x - 1, y - 3, 2, 6);
+      g.fillStyle(on ? 0xfff2c0 : 0x8a7a5a).fillRect(x - 2, on ? y - 6 : y + 1, 4, 5);
+    });
+
     // Hearths: pixel flames flicker in the fireplace (painted in roomart.ts);
     // cold ones hold grey ash and show relight progress.
     snap.hearths.forEach((h, i) => {
@@ -640,6 +651,17 @@ export class GameScene extends Phaser.Scene {
       }
       this.dark.erase(this.eraser);
     }
+    // A room whose lamps are on is lit from wall to wall, for whoever is in it.
+    // shortcut: from a doorway or the next room it looks dark; light the doorway view if that jars.
+    const here = world.roomAt(me.x, me.y);
+    world.view.switches.forEach((sw, i) => {
+      if (!snap.lamps[i] || (sw.room !== here && !ghost)) return;
+      const r = world.view.rooms[sw.room];
+      const w = (r.x1 - r.x0 + 3) * TS, h = (r.y1 - r.y0 + 3) * TS;
+      this.eraser.clear().fillStyle(0xffffff, 1).fillRect((r.x0 - 1) * TS - ox, (r.y0 - 1) * TS - oy, w, h);
+      this.dark.erase(this.eraser);
+      this.glowG.fillStyle(0xffd9a0, 0.06).fillRect((r.x0 - 1) * TS, (r.y0 - 1) * TS, w, h);
+    });
     for (const l of lights) {
       if (!l.warm) continue;
       this.glowG.fillStyle(0xff9a3c, 0.05).fillCircle(l.x * TS, l.y * TS, l.r * TS * 0.9);

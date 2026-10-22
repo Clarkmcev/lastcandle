@@ -14,6 +14,7 @@ type MapView struct {
 	Mirrors  []Vec    `json:"mirrors"`
 	Spots    []Vec    `json:"spots"`
 	Passages [][2]Vec `json:"passages,omitempty"`
+	Switches []Switch `json:"switches"`
 	Altar    Rect     `json:"altar"`
 	Table    Rect     `json:"table"`
 }
@@ -155,6 +156,7 @@ type Snapshot struct {
 	Smoke      []SmokeView  `json:"smoke"`
 	Drips      []DripView   `json:"drips"`
 	Hearths    []HearthView `json:"hearths"`
+	Lamps      []bool       `json:"lamps"` // per switch: its room is lit
 	Spots      []SpotView   `json:"spots"`
 	Loose      []Vec        `json:"loose"`
 	AltarPages int          `json:"altarPages"`
@@ -185,7 +187,7 @@ func (m *Match) StartFor(id string) StartView {
 	mv := MapView{
 		W: m.Map.W, H: m.Map.H, Rows: m.Map.Rows(), Rooms: m.Map.Rooms,
 		Hearths: m.Map.Hearths, Mirrors: m.Map.Mirrors, Spots: m.Map.Spots,
-		Altar: m.Map.Altar, Table: m.Map.Table,
+		Altar: m.Map.Altar, Table: m.Map.Table, Switches: m.Map.Switches,
 	}
 	if p.Role == RoleHost {
 		mv.Passages = m.Map.Passages
@@ -283,6 +285,9 @@ func (m *Match) SnapshotFor(id string) Snapshot {
 		if near(l) {
 			s.Loose = append(s.Loose, l)
 		}
+	}
+	for _, t := range m.Lamps {
+		s.Lamps = append(s.Lamps, t > 0)
 	}
 	for _, h := range m.Hearths {
 		s.Hearths = append(s.Hearths, HearthView{h.Lit, round2(h.Relight / m.Cfg.HearthRelight)})
