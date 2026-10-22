@@ -27,6 +27,19 @@ type Facing = "down" | "up" | "left" | "right";
 // for each way they can face.
 const CANDLE_AT: Record<Facing, [number, number]> = { down: [8, -2], up: [-8, -2], right: [5, -2], left: [-5, -2] };
 
+// A kill heard nearby: the sword, then blood that sprays, lands and pools.
+const GORE_MS = 12000;
+const GRAVITY = 900; // screen px/s²
+
+interface Drop {
+  vx: number;
+  vy: number;
+  delay: number; // s after the kill: three spurts, each weaker
+  ground: number; // px below the chest where it lands
+  land: number; // s in the air
+  size: number;
+}
+
 interface Motion {
   x: number;
   y: number;
@@ -58,6 +71,8 @@ export class GameScene extends Phaser.Scene {
   private mouseDownAt = 0;
   private walk: { path: Vec[]; last: Vec; still: number } | null = null;
   private markG!: Phaser.GameObjects.Graphics;
+  private goreG!: Phaser.GameObjects.Graphics;
+  private gore = new WeakMap<object, { drops: Drop[]; shook: boolean }>();
   private mark: { x: number; y: number; at: number } | null = null;
   private glowG!: Phaser.GameObjects.Graphics;
   private eraser!: Phaser.GameObjects.Graphics;
@@ -94,6 +109,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor("#030204").setZoom(ZOOM);
 
     this.markG = this.add.graphics().setDepth(10.4);
+    this.goreG = this.add.graphics().setDepth(10.45);
     this.input.mouse?.disableContextMenu();
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (!p.leftButtonDown()) return;
@@ -177,6 +193,7 @@ export class GameScene extends Phaser.Scene {
       r.y += (r.ty - r.y) * k;
     }
     this.drawDynamic(time, me);
+    this.drawKills(performance.now(), me);
     this.drawMark(performance.now());
     this.drawLights(time, me);
   }
@@ -246,6 +263,87 @@ export class GameScene extends Phaser.Scene {
   }
 
   // A ring where a click sent you, drawn above the darkness.
+  // A sword cuts the victim down, then blood sprays out in three spurts and
+  // pools. Close by (the killer, the victim) it shows through the dark;
+  // farther off it stays under the darkness, so it gives away no more than
+  // the sound already does.
+  private drawKills(now: number, me: Vec) {
+    const s = this.session;
+    const near = this.goreG.clear();
+    s.kills = s.kills.filter((k) => now - k.at < GORE_MS);
+    for (const k of s.kills) {
+      const close = Math.hypot(k.x - me.x, k.y - me.y) <= 2.5;
+      const g = close ? near : this.fxG;
+      const t = (now - k.at) / 1000;
+      const fade = Math.min(1, (GORE_MS / 1000 - t) / 3);
+      const x = k.x * TS, y = k.y * TS - 10; // the chest
+      let st = this.gore.get(k);
+      if (!st) {
+        st = { drops: [], shook: false };
+        for (let i = 0; i < 70; i++) {
+          const pulse = i % 3;
+          const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.8;
+          const sp = (130 + Math.random() * 170) * (1 - pulse * 0.25);
+          const vx = Math.cos(a) * sp, vy = Math.sin(a) * sp;
+          const ground = 12 + Math.random() * 16;
+          const land = (-vy + Math.sqrt(vy * vy + 2 * GRAVITY * ground)) / GRAVITY;
+          st.drops.push({ vx, vy, ground, land, delay: 0.18 + pulse * 0.35 + Math.random() * 0.08, size: Math.random() < 0.3 ? 4 : 2 });
+        }
+        this.gore.set(k, st);
+      }
+      if (close && !st.shook && t >= 0.18) {
+        st.shook = true;
+        this.cameras.main.shake(200, 0.008);
+      }
+
+      // The pool spreads under the body.
+      const pool = Math.min(1, Math.max(0, t - 0.3) / 2.5);
+      if (pool > 0) {
+        g.fillStyle(0x4a0505, 0.85 * fade).fillEllipse(x, y + 20, 10 + 40 * pool, 4 + 14 * pool);
+        g.fillStyle(0x7a0a0a, 0.6 * fade).fillEllipse(x - 3, y + 19, 6 + 22 * pool, 2 + 7 * pool);
+      }
+      for (const d of st.drops) {
+        const tt = t - d.delay;
+        if (tt < 0) continue;
+        if (tt < d.land) {
+          const dx = x + d.vx * tt, dy = y + d.vy * tt + 0.5 * GRAVITY * tt * tt;
+          g.fillStyle(0xc0100f).fillRect(Math.round(dx), Math.round(dy), d.size, d.size);
+        } else {
+          g.fillStyle(0x6e0808, 0.9 * fade).fillEllipse(Math.round(x + d.vx * d.land), Math.round(y + d.ground), d.size * 2, d.size);
+        }
+      }
+
+      // The blade: one hard swing across the chest, a bright trail behind it.
+      if (t < 0.4) {
+        const swing = Math.min(1, t / 0.2);
+        const ease = 1 - (1 - swing) ** 3;
+        const alpha = t < 0.2 ? 1 : 1 - (t - 0.2) / 0.2;
+        const px = x - 18, py = y - 26, len = 40;
+        const from = -0.6, ang = from + ease * 2.2;
+        for (let i = 1; i <= 6; i++) {
+          const ta = ang - i * 0.12;
+          if (ta < from) break;
+          g.lineStyle(4 - i * 0.5, i < 3 ? 0xffffff : 0xff4040, (0.6 - i * 0.09) * alpha);
+          g.lineBetween(px + Math.cos(ta) * 14, py + Math.sin(ta) * 14, px + Math.cos(ta) * len, py + Math.sin(ta) * len);
+        }
+        const tipX = px + Math.cos(ang) * len, tipY = py + Math.sin(ang) * len;
+        const baseX = px + Math.cos(ang) * 10, baseY = py + Math.sin(ang) * 10;
+        g.lineStyle(4, 0x9aa3b2, alpha).lineBetween(baseX, baseY, tipX, tipY);
+        g.lineStyle(1, 0xf2f6ff, alpha).lineBetween(baseX, baseY, tipX, tipY);
+        if (t > 0.18) g.lineStyle(2, 0xb00d0d, alpha).lineBetween(baseX + (tipX - baseX) * 0.6, baseY + (tipY - baseY) * 0.6, tipX, tipY); // blood on the edge
+        const gx = -Math.sin(ang) * 7, gy = Math.cos(ang) * 7;
+        g.lineStyle(3, 0xc99a3a, alpha).lineBetween(baseX - gx, baseY - gy, baseX + gx, baseY + gy); // crossguard
+        g.lineStyle(3, 0x3a2414, alpha).lineBetween(px, py, baseX, baseY); // grip
+      }
+      // The hit: a white flash, then red.
+      if (t >= 0.18 && t < 0.34) {
+        const h = (t - 0.18) / 0.16;
+        g.fillStyle(0xffffff, 0.8 * (1 - h)).fillCircle(x, y, 6 + 10 * h);
+        g.fillStyle(0xd01010, 0.7 * (1 - h)).fillCircle(x, y, 3 + 16 * h);
+      }
+    }
+  }
+
   private drawMark(time: number) {
     const g = this.markG.clear();
     if (!this.mark) return;
@@ -362,13 +460,25 @@ export class GameScene extends Phaser.Scene {
       // You always see yourself; everyone else lives under the darkness.
       sprite.setPosition(px, footY).setDepth(self ? 10.5 : 4.1 + py / 1e6);
 
-      if (lit) {
+      // Everyone alive holds a candle; only a lit one has a flame.
+      if (!ghost) {
         const [cx, cy] = CANDLE_AT[face];
-        const hx = Math.round(px + cx), hy = Math.round(footY + cy - 10);
-        const f = Math.sin(time * 0.02 + px) > 0.2 ? 2 : 0;
-        fx.fillStyle(0xe8dcc0).fillRect(hx - 2, hy, 4, 8);
-        fx.fillStyle(0xff7a1a).fillRect(hx - 2, hy - 6 - f, 4, 6 + f);
-        fx.fillStyle(0xffd27a).fillRect(hx - 1, hy - 4, 2, 4);
+        // hy is the top of the wax; the base stays at hand height.
+        const hx = Math.round(px + cx), hy = Math.round(footY + cy - 16);
+        fx.fillStyle(0xb8862e).fillRect(hx - 6, hy + 14, 12, 3); // brass dish
+        fx.fillStyle(0xf3d27a).fillRect(hx - 6, hy + 14, 12, 1);
+        fx.fillStyle(0xf4ecd8).fillRect(hx - 3, hy, 6, 14); // wax
+        fx.fillStyle(0xffffff).fillRect(hx - 2, hy + 1, 1, 12); // its shine
+        fx.fillStyle(0xcfc2a4).fillRect(hx + 2, hy, 1, 14);
+        fx.fillStyle(0xf4ecd8).fillRect(hx + 3, hy + 2, 1, 4); // a drip
+        if (lit) {
+          const f = Math.sin(time * 0.02 + px) > 0.2 ? 2 : 0;
+          fx.fillStyle(0xffb35c, 0.18).fillCircle(hx, hy - 6, 16 + f); // halo
+          fx.fillStyle(0xffd27a, 0.3).fillCircle(hx, hy - 6, 9 + f);
+          fx.fillStyle(0xff7a1a).fillRect(hx - 3, hy - 11 - f, 6, 11 + f);
+          fx.fillStyle(0xffd27a).fillRect(hx - 2, hy - 8 - f, 4, 7 + f);
+          fx.fillStyle(0xfff6d8).fillRect(hx - 1, hy - 5, 2, 4);
+        } else fx.fillStyle(0x2a2420).fillRect(hx - 1, hy - 3, 2, 3); // the burnt wick
       }
 
       let label = this.labels.get(id);

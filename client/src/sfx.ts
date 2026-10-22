@@ -246,15 +246,36 @@ export function snuff(pan: number, volume: number) {
   hiss(a, 0.28, 0.25, 0.08 * volume, pan, "highpass", 5000);
 }
 
-// A struggle in the dark: a choked gasp, a blow, the body falling.
+// A kill: the sword's swish and ring, the wet hit, blood spattering, a
+// choked gasp and the body falling. Timed to the scene's swing (hit at 0.18 s).
 export function kill(pan: number, volume: number) {
   const a = audio();
   if (!a) return;
-  hiss(a, 0, 0.22, 0.25 * volume, pan, "bandpass", 900, 600);
-  thump(a, 0.15, 95, 32, 0.4, 0.6 * volume, pan);
-  hiss(a, 0.15, 0.12, 0.2 * volume, pan, "lowpass", 500);
-  thump(a, 0.55, 70, 28, 0.5, 0.45 * volume, pan);
-  hiss(a, 0.55, 0.25, 0.12 * volume, pan, "lowpass", 350);
+  hiss(a, 0, 0.18, 0.3 * volume, pan, "bandpass", 1800, 6000); // swish
+  for (const [f, g] of [[2210, 0.07], [3390, 0.05], [5130, 0.03]]) ring(a, 0.17, f, 0.9, g * volume, pan);
+  thump(a, 0.18, 140, 40, 0.25, 0.7 * volume, pan); // the blade lands
+  hiss(a, 0.18, 0.2, 0.45 * volume, pan, "lowpass", 1200, 200); // flesh
+  for (let i = 0; i < 9; i++) {
+    const at = 0.24 + (i % 3) * 0.35 + Math.random() * 0.1; // three spurts
+    hiss(a, at, 0.06 + Math.random() * 0.08, (0.12 + Math.random() * 0.14) * volume * (1 - (i % 3) * 0.25), pan, "lowpass", 900 + Math.random() * 700, 180);
+  }
+  hiss(a, 0.3, 0.3, 0.25 * volume, pan, "bandpass", 900, 500); // the gasp
+  thump(a, 0.95, 80, 28, 0.5, 0.55 * volume, pan); // the fall
+  hiss(a, 0.95, 0.3, 0.15 * volume, pan, "lowpass", 350);
+}
+
+// A struck blade's ring: one sine partial fading out.
+function ring(a: AudioContext, at: number, freq: number, length: number, gain: number, pan: number) {
+  const t = a.currentTime + at;
+  const o = a.createOscillator();
+  o.frequency.value = freq;
+  const g = out(a, pan, 0);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gain, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + length);
+  o.connect(g);
+  o.start(t);
+  o.stop(t + length + 0.05);
 }
 
 // Paper: a quick crinkle of a sheet being picked up or laid down.

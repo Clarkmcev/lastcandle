@@ -47,6 +47,9 @@ export class Session {
   private seq = 0;
   private pending: { seq: number; dx: number; dy: number }[] = [];
 
+  // Kills heard nearby, for the scene's sword and blood (performance.now() times).
+  kills: { x: number; y: number; at: number }[] = [];
+
   private listeners = new Map<string, Listener[]>();
   onEvent: (e: EventMsg) => void = () => {};
   onChat: (c: ChatMsg) => void = () => {};
@@ -77,6 +80,7 @@ export class Session {
       this.snap = undefined;
       this.end = undefined;
       this.remotes.clear();
+      this.kills = [];
       this.pending = [];
       this.mapBuilt = false;
       this.emit("start");
@@ -90,7 +94,10 @@ export class Session {
       this.end = m;
       this.emit("end");
     });
-    this.net.on("event", (m) => this.onEvent(m));
+    this.net.on("event", (m) => {
+      if (m.kind === "sound" && m.text === "kill") this.kills.push({ x: m.x!, y: m.y!, at: performance.now() });
+      this.onEvent(m);
+    });
     this.net.on("chat", (m) => this.onChat(m));
     this.net.on("error", (m) => this.onError(m.text));
   }
