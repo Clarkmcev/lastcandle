@@ -363,3 +363,30 @@ func TestRoomListOnlyInDevMode(t *testing.T) {
 		t.Fatalf("want Ada's lobby %v listed, got %+v", code, list)
 	}
 }
+
+func TestRoomListNeedsTheAdminToken(t *testing.T) {
+	hub := NewHub(game.DefaultConfig(), []string{"*"})
+	hub.EnableAdmin("s3cret")
+	srv := httptest.NewServer(hub.Handler(""))
+	get := func(auth string) int {
+		req, _ := http.NewRequest("GET", srv.URL+"/rooms", nil)
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if c := get(""); c != http.StatusUnauthorized {
+		t.Fatalf("no token: got %d", c)
+	}
+	if c := get("Bearer wrong"); c != http.StatusUnauthorized {
+		t.Fatalf("wrong token: got %d", c)
+	}
+	if c := get("Bearer s3cret"); c != http.StatusOK {
+		t.Fatalf("right token: got %d", c)
+	}
+}

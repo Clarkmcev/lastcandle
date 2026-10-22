@@ -119,6 +119,12 @@ is playing (`fly logs` shows rooms joining and starting).
   `fly secrets set LASTCANDLE_MAX_ROOMS=… LASTCANDLE_MAX_MATCHES=…` (0 means
   no limit). `/healthz` shows how many are in use, e.g.
   `ok rooms=3 matches=1`.
+- **Room list.** Set a long random admin token once:
+  `fly secrets set LASTCANDLE_ADMIN_TOKEN=$(openssl rand -hex 32)`, and keep
+  a copy: Fly will not show it again. Then
+  `curl -H "Authorization: Bearer $TOKEN" https://<your-app>.fly.dev/rooms`
+  lists every open room with its code. Without the secret, `/rooms` does not
+  exist.
 - **No developer mode.** The image starts the server without `-dev`, so
   `?dev` sandbox matches are refused in production.
 - **Rolling back.** `fly releases` lists deploys; `fly deploy --image <ref>`

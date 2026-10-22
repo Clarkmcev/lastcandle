@@ -85,6 +85,10 @@ func main() {
 		hub.EnableDev()
 		log.Printf("developer mode: add ?dev to the client URL for an empty test match")
 	}
+	if t := os.Getenv("LASTCANDLE_ADMIN_TOKEN"); t != "" {
+		hub.EnableAdmin(t)
+		log.Printf("admin: /rooms lists every room for requests with the admin token")
+	}
 	srv := &http.Server{Handler: hub.Handler(staticDir)}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

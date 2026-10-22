@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -33,6 +34,8 @@ type Hub struct {
 	cfg     game.Config
 	origins []string
 	dev     bool // allow sandbox matches (developer mode)
+	// adminToken, when set, opens /rooms to requests that carry it.
+	adminToken string
 
 	mu         sync.Mutex
 	rooms      map[string]*Room
@@ -50,6 +53,10 @@ func NewHub(cfg game.Config, origins []string) *Hub {
 
 // EnableDev lets room owners start sandbox matches.
 func (h *Hub) EnableDev() { h.dev = true }
+
+// EnableAdmin serves the room list in production to requests with
+// "Authorization: Bearer <token>".
+func (h *Hub) EnableAdmin(token string) { h.adminToken = token }
 
 // SetLimits caps how many rooms can be open and how many matches can run at
 // once; 0 means no limit.
@@ -132,8 +139,8 @@ func randomHex(n int) string {
 }
 
 // Handler serves the WebSocket endpoint, a health check, in developer mode a
-// list of rooms, and the built web client from staticDir when it is not empty.
-// Call EnableDev first.
+// or for the admin a list of rooms, and the built web client from staticDir
+// when it is not empty. Call EnableDev and EnableAdmin first.
 func (h *Hub) Handler(staticDir string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", h.ServeWS)
@@ -143,9 +150,14 @@ func (h *Hub) Handler(staticDir string) http.Handler {
 		h.mu.Unlock()
 		fmt.Fprintf(w, "ok rooms=%d matches=%d", rooms, matches)
 	})
-	if h.dev {
-		// Every room's code, so only in developer mode: a code is all it takes to join.
-		mux.HandleFunc("/rooms", func(w http.ResponseWriter, _ *http.Request) {
+	if h.dev || h.adminToken != "" {
+		// Every room's code, so only in developer mode or for the admin: a
+		// code is all it takes to join.
+		mux.HandleFunc("/rooms", func(w http.ResponseWriter, req *http.Request) {
+			if h.adminToken != "" && subtle.ConstantTimeCompare([]byte(req.Header.Get("Authorization")), []byte("Bearer "+h.adminToken)) != 1 {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 			h.mu.Lock()
 			list := make([]*roomInfo, 0, len(h.rooms))
 			for _, r := range h.rooms {
