@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -130,8 +131,9 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// Handler serves the WebSocket endpoint, a health check, and the built web
-// client from staticDir when it is not empty.
+// Handler serves the WebSocket endpoint, a health check, in developer mode a
+// list of rooms, and the built web client from staticDir when it is not empty.
+// Call EnableDev first.
 func (h *Hub) Handler(staticDir string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", h.ServeWS)
@@ -141,6 +143,20 @@ func (h *Hub) Handler(staticDir string) http.Handler {
 		h.mu.Unlock()
 		fmt.Fprintf(w, "ok rooms=%d matches=%d", rooms, matches)
 	})
+	if h.dev {
+		// Every room's code, so only in developer mode: a code is all it takes to join.
+		mux.HandleFunc("/rooms", func(w http.ResponseWriter, _ *http.Request) {
+			h.mu.Lock()
+			list := make([]*roomInfo, 0, len(h.rooms))
+			for _, r := range h.rooms {
+				list = append(list, r.info.Load())
+			}
+			h.mu.Unlock()
+			slices.SortFunc(list, func(a, b *roomInfo) int { return a.Created.Compare(b.Created) })
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(list)
+		})
+	}
 	if staticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(staticDir)))
 	}

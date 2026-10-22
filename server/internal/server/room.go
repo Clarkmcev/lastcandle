@@ -4,6 +4,7 @@ import (
 	"log"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -92,13 +93,31 @@ type Room struct {
 	// cfg is this room's rules: the server's config, as changed by the
 	// owner on the settings page.
 	cfg game.Config
+	// info is what the hub's /rooms page shows: a copy the room goroutine
+	// publishes, since only it may touch the fields above.
+	info    atomic.Pointer[roomInfo]
+	created time.Time
+}
+
+type roomInfo struct {
+	Code    string    `json:"code"`
+	State   string    `json:"state"`
+	Players int       `json:"players"` // bots included
+	Online  int       `json:"online"`  // humans connected now
+	Created time.Time `json:"created"`
 }
 
 func newRoom(h *Hub, code, ip string) *Room {
-	return &Room{
-		hub: h, code: code, ip: ip, state: "lobby", cfg: h.cfg,
+	r := &Room{
+		hub: h, code: code, ip: ip, state: "lobby", cfg: h.cfg, created: time.Now(),
 		join: make(chan joinReq), leave: make(chan *Client), in: make(chan clientMsg, 256),
 	}
+	r.publish()
+	return r
+}
+
+func (r *Room) publish() {
+	r.info.Store(&roomInfo{Code: r.code, State: r.state, Players: len(r.members), Online: r.onlineHumans(), Created: r.created})
 }
 
 func (r *Room) run() {
@@ -119,6 +138,7 @@ func (r *Room) run() {
 				r.tick()
 			}
 		}
+		r.publish()
 		if r.onlineHumans() > 0 {
 			emptySince = time.Now()
 		} else if time.Since(emptySince) > 30*time.Second {

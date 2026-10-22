@@ -1,6 +1,6 @@
 # Last Candle: Go game server + TypeScript/Phaser web client.
 
-.PHONY: install dev-server dev-client build test run docker docker-run launch deploy
+.PHONY: install dev-server dev-client build test run docker docker-run docker-dev launch deploy
 
 install:
 	cd client && npm install
@@ -35,6 +35,10 @@ docker:
 
 docker-run: docker
 	docker run --rm -p $(PORT):8080 lastcandle
+
+# The same image in developer mode (sandbox matches, /rooms), with short nights.
+docker-dev: docker
+	docker run --rm -p $(PORT):8080 -e LASTCANDLE_HOUR_SECONDS=$(HOUR) lastcandle -dev
 
 # Fly.io (see DEPLOY.md). `fly` is found on the PATH, or where its
 # installer puts it. Override the app name or region, e.g.

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -335,5 +336,30 @@ func TestLeavingMidMatchLetsGoOfHeldKeys(t *testing.T) {
 	r.onLeave(c)
 	if p := r.match.Player("host"); p.SnuffOn || p.Interact {
 		t.Fatal("a player who dropped should not keep snuffing or interacting")
+	}
+}
+
+func TestRoomListOnlyInDevMode(t *testing.T) {
+	hub := NewHub(game.DefaultConfig(), []string{"*"})
+	if res, _ := http.Get(httptest.NewServer(hub.Handler("")).URL + "/rooms"); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("/rooms must not list codes outside developer mode, got %d", res.StatusCode)
+	}
+	hub.EnableDev()
+	srv := httptest.NewServer(hub.Handler(""))
+	code := dial(t, srv, "name=Ada").waitFor("welcome")["code"]
+	var list []roomInfo
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		res, err := http.Get(srv.URL + "/rooms")
+		if err != nil {
+			t.Fatal(err)
+		}
+		json.NewDecoder(res.Body).Decode(&list)
+		res.Body.Close()
+		if len(list) == 1 && list[0].Online == 1 {
+			break
+		}
+	}
+	if len(list) != 1 || list[0].Code != code || list[0].State != "lobby" || list[0].Players != 1 || list[0].Online != 1 {
+		t.Fatalf("want Ada's lobby %v listed, got %+v", code, list)
 	}
 }
