@@ -80,6 +80,7 @@ type lobbyPlayer struct {
 type Room struct {
 	hub     *Hub
 	code    string
+	ip      string // who opened the room
 	join    chan joinReq
 	leave   chan *Client
 	in      chan clientMsg
@@ -93,9 +94,9 @@ type Room struct {
 	cfg game.Config
 }
 
-func newRoom(h *Hub, code string) *Room {
+func newRoom(h *Hub, code, ip string) *Room {
 	return &Room{
-		hub: h, code: code, state: "lobby", cfg: h.cfg,
+		hub: h, code: code, ip: ip, state: "lobby", cfg: h.cfg,
 		join: make(chan joinReq), leave: make(chan *Client), in: make(chan clientMsg, 256),
 	}
 }
@@ -259,6 +260,11 @@ func (r *Room) onLeave(c *Client) {
 	}
 	m.client = nil
 	close(c.send)
+	if r.state == "playing" {
+		// Keys held when the connection dropped are let go.
+		r.match.SetHold(m.id, "interact", false)
+		r.match.SetHold(m.id, "snuff", false)
+	}
 	if r.state == "lobby" {
 		r.members = slices.DeleteFunc(r.members, func(x *member) bool { return x == m })
 	}

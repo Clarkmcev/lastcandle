@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -22,6 +23,8 @@ import (
 const (
 	DefaultMaxRooms   = 60
 	DefaultMaxMatches = 20
+	// MaxRoomsPerIP stops one client from opening every room on the server.
+	MaxRoomsPerIP = 3
 )
 
 // Hub owns every room, keyed by its join code.
@@ -76,12 +79,21 @@ func (h *Hub) releaseMatch() {
 // Codes skip letters that are easy to misread aloud (I, O, L).
 const codeLetters = "ABCDEFGHJKMNPQRSTUVWXYZ"
 
-// newRoom opens a room, or returns nil when the server has too many.
-func (h *Hub) newRoom() *Room {
+// newRoom opens a room for ip, or says why it cannot.
+func (h *Hub) newRoom(ip string) (*Room, string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.maxRooms > 0 && len(h.rooms) >= h.maxRooms {
-		return nil
+		return nil, "The manor is full right now. Try again in a few minutes."
+	}
+	mine := 0
+	for _, r := range h.rooms {
+		if r.ip == ip {
+			mine++
+		}
+	}
+	if mine >= MaxRoomsPerIP {
+		return nil, "You already have too many rooms open. Close one and try again in a minute."
 	}
 	for {
 		b := make([]byte, 4)
@@ -91,10 +103,10 @@ func (h *Hub) newRoom() *Room {
 			code[i] = codeLetters[int(b[i])%len(codeLetters)]
 		}
 		if _, taken := h.rooms[string(code)]; !taken {
-			r := newRoom(h, string(code))
+			r := newRoom(h, string(code), ip)
 			h.rooms[r.code] = r
 			go r.run()
-			return r
+			return r, ""
 		}
 	}
 }
@@ -148,8 +160,9 @@ func (h *Hub) ServeWS(w http.ResponseWriter, req *http.Request) {
 
 	var r *Room
 	if code := q.Get("room"); code == "" {
-		if r = h.newRoom(); r == nil {
-			c.closeWith("The manor is full right now. Try again in a few minutes.")
+		var why string
+		if r, why = h.newRoom(clientIP(req)); r == nil {
+			c.closeWith(why)
 			return
 		}
 	} else if r = h.room(code); r == nil {
@@ -167,6 +180,19 @@ func (h *Hub) ServeWS(w http.ResponseWriter, req *http.Request) {
 	go c.writeLoop(ctx)
 	c.readLoop(ctx, r)
 	r.leave <- c
+}
+
+// clientIP is who sent req. Fly's proxy puts the real address in
+// Fly-Client-IP; shortcut: off Fly a client can forge that header.
+func clientIP(req *http.Request) string {
+	if ip := req.Header.Get("Fly-Client-IP"); ip != "" {
+		return ip
+	}
+	host, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		return req.RemoteAddr
+	}
+	return host
 }
 
 // Client is one browser connection.
