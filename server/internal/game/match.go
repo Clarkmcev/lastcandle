@@ -92,6 +92,7 @@ type Player struct {
 	snuffT      float64
 	passCD      float64
 	shock       float64
+	moveBudget  int // queued commands this player may still apply
 
 	cmds    []Cmd
 	history []Vec
@@ -741,8 +742,11 @@ func (m *Match) move(p *Player, dt float64) {
 		dx, dy := InputStep(p.botDir.X, p.botDir.Y, speed, dt)
 		p.Pos = Move(m.Map, p.Pos, dx, dy, p.Ghost)
 	}
-	// Up to 3 queued commands per tick absorbs jitter without allowing speed hacks.
-	n := min(len(p.cmds), 3)
+	// Each tick earns one move, banked up to 3: a client catching up after
+	// jitter moves faster for a moment, but never faster on average.
+	p.moveBudget = min(p.moveBudget+1, 3)
+	n := min(len(p.cmds), p.moveBudget)
+	p.moveBudget -= n
 	for _, c := range p.cmds[:n] {
 		dx, dy := InputStep(c.DX, c.DY, speed, dt)
 		p.Pos = Move(m.Map, p.Pos, dx, dy, p.Ghost)

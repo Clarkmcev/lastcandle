@@ -308,3 +308,32 @@ func TestMatchLimit(t *testing.T) {
 		t.Fatalf("one match should be running, the hub counts %d", n)
 	}
 }
+
+func TestRoomsPerIPAreLimited(t *testing.T) {
+	hub := NewHub(game.DefaultConfig(), []string{"*"})
+	srv := httptest.NewServer(hub.Handler(""))
+	defer srv.Close()
+
+	for i := 0; i < MaxRoomsPerIP; i++ {
+		dial(t, srv, "name=Ada").waitFor("welcome")
+	}
+	if e := dial(t, srv, "name=Ada").waitFor("error"); !strings.Contains(e["text"].(string), "too many rooms") {
+		t.Fatalf("one more room from the same address should be refused, got %v", e)
+	}
+}
+
+func TestLeavingMidMatchLetsGoOfHeldKeys(t *testing.T) {
+	hub := NewHub(game.DefaultConfig(), nil)
+	r := newRoom(hub, "TEST", "")
+	c := &Client{send: make(chan []byte, 64)}
+	r.members = []*member{{id: "host", client: c}, {id: "b", bot: true}, {id: "c", bot: true}}
+	r.match = game.NewMatch(r.cfg, []game.Seat{{ID: "host", Role: game.RoleHost}, {ID: "b"}, {ID: "c"}}, 1)
+	r.state = "playing"
+	r.match.SetHold("host", "snuff", true)
+	r.match.SetHold("host", "interact", true)
+
+	r.onLeave(c)
+	if p := r.match.Player("host"); p.SnuffOn || p.Interact {
+		t.Fatal("a player who dropped should not keep snuffing or interacting")
+	}
+}

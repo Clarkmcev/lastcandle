@@ -538,3 +538,22 @@ func TestSnuffAndKillAreHeardNearby(t *testing.T) {
 		}
 	}
 }
+
+func TestFloodedCommandsDoNotMoveFaster(t *testing.T) {
+	m, _, guests := newTestMatch(t, 5)
+	g := guests[0]
+	g.Alive, g.Ghost = false, true // ghosts pass walls, so distance is pure speed
+	start, seq := g.Pos, 0
+	ticks := int(1 / m.Cfg.Tick)
+	for i := 0; i < ticks; i++ {
+		for k := 0; k < 3; k++ { // three commands a tick: a speed hack
+			seq++
+			m.QueueCmd(g.ID, Cmd{Seq: seq, DX: 1})
+		}
+		m.Tick()
+	}
+	// The first tick may spend a banked move or two; after that, one a tick.
+	if moved, max := g.Pos.X-start.X, m.Cfg.GhostSpeed+3*m.Cfg.GhostSpeed*m.Cfg.Tick; moved > max {
+		t.Fatalf("moved %.2f tiles in a second, at most %.2f allowed", moved, max)
+	}
+}
