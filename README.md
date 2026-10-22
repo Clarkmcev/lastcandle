@@ -28,7 +28,7 @@ Playing alone? Add bots in the lobby. At least 3 players (or bots) are needed.
 
 ### Deploying
 
-To host it on the internet (Fly.io, one machine, your own domain), see [DEPLOY.md](DEPLOY.md). `make docker-run` runs the production image locally first.
+To host it on the internet (Fly.io, one machine, your own domain), see [DEPLOY.md](DEPLOY.md). `make docker-run` runs the production image locally first; `make docker-dev` runs it in developer mode.
 
 ### Developer mode
 
@@ -63,6 +63,23 @@ Every new lobby starts from the server's config (`server/lastcandle.json`); the 
 | `-origins` | `localhost:*,127.0.0.1:*` | Extra WebSocket origins allowed (same-host is always allowed) |
 | `LASTCANDLE_HOUR_SECONDS` | `60` | Real seconds per in-game hour |
 | `LASTCANDLE_DISCUSS_SECONDS` | `30` | Meeting discussion time |
+| `LASTCANDLE_ADMIN_TOKEN` | none | Serve `/rooms` to requests with `Authorization: Bearer <token>` |
+
+### Endpoints
+
+| Path | What it serves |
+| --- | --- |
+| `/ws?room=CODE&name=NAME` | The game's WebSocket; no `room` opens a new room |
+| `/healthz` | `ok rooms=3 matches=1`: rooms open and matches running |
+| `/rooms` | JSON list of every open room: `code`, `state` (`lobby`, `playing`, `ended`), `players` (bots included), `online` (humans connected) and `created`. Only with `-dev`, or with `LASTCANDLE_ADMIN_TOKEN` set; otherwise 404 |
+| `/` | The built web client, when `-static` points at one |
+
+A room code is all it takes to join a lobby, so `/rooms` is for whoever runs the server, never for players:
+
+```sh
+curl -s localhost:8080/rooms | jq                                                     # -dev, no token set
+curl -s -H "Authorization: Bearer $TOKEN" https://lastcandle.fly.dev/rooms | jq   # production (see DEPLOY.md)
+```
 
 ## How to play
 
