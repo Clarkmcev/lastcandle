@@ -308,6 +308,8 @@ export class UI {
     $("loadFill").style.width = "0";
     show("loading", true);
     this.loadingArt.start();
+    this.revealing = true; // keeps the room's piece from replacing the lift music
+    playSong("lift");
     if (me) setTimeout(() => s.loading && say(me.color, "At last, the manor.", { syllables: 5 }), 700);
     const steps = ["Opening the gates…", "Lighting the candles…", "Setting the table…", "Drawing the curtains…", "Locking the doors…"];
     const t0 = performance.now();

@@ -640,6 +640,21 @@ label {
   font-size: 15px;
 }
 
+#howToPlay summary {
+  cursor: pointer;
+  color: var(--gold);
+  text-align: center;
+}
+
+#howToPlay p,
+#howToPlay ul {
+  margin: 10px 0 0;
+}
+
+#howToPlay ul {
+  padding-left: 18px;
+}
+
 .error {
   color: var(--red);
   min-height: 1em;

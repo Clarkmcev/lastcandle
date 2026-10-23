@@ -98,6 +98,28 @@ const SONGS: Record<string, SongDef> = {
     drums: [{ kick: [0, 8], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] }],
   },
 
+  // The loading screen: lift music while the manor gets ready, a soft
+  // bossa in F with a walking bass and vibraphone.
+  lift: {
+    name: "Going Up",
+    bpm: 104,
+    beats: 4,
+    bars: 8,
+    chords: [["F4 A4 C5 E5", "F1"], ["D4 F4 A4 C5", "D2"], ["G4 Bb4 D5 F5", "G1"], ["C4 E4 G4 Bb4", "C2"]],
+    stabs: { steps: [3, 6, 10, 14], wave: 0.5, vol: 0.022, len: 2 },
+    bass: { hits: [0, 4, 8, 12], len: 3, vol: 0.3, walk: true },
+    melody: {
+      from: 0,
+      bars:
+        "A5:4 G5:2 F5:2 E5:6 C5:2 | D5:4 F5:4 A5:6 -:2 | Bb5:4 A5:2 G5:2 F5:6 D5:2 | E5:8 G5:4 -:4 |" +
+        "A5:4 C6:4 A5:2 G5:2 F5:4 | F5:4 E5:2 D5:2 C5:8 | D5:2 F5:2 Bb5:4 A5:2 G5:2 F5:4 | E5:6 G5:2 F5:8",
+      wave: "triangle",
+      vol: 0.16,
+      vibrato: true,
+    },
+    drums: [{ kick: [0, 10], hat: [0, 4, 6, 8, 12, 14] }],
+  },
+
   // A music box among the shelves, slow and dusty.
   library: {
     name: "Dust and Ink",

@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import type { Session } from "./session";
-import type { Vec } from "./protocol";
+import type { Rect, Vec } from "./protocol";
 import { ART, paintManor } from "./roomart";
 import * as sfx from "./sfx";
 import { dist } from "./world";
@@ -23,9 +23,9 @@ const hex = (c: string) => Phaser.Display.Color.HexStringToColor(c).color;
 
 type Facing = "down" | "up" | "left" | "right";
 
-// Where the candle sits relative to a character's feet, in screen pixels,
-// for each way they can face.
-const CANDLE_AT: Record<Facing, [number, number]> = { down: [8, -2], up: [-8, -2], right: [5, -2], left: [-5, -2] };
+// Where the candle's dish sits relative to a character's feet, in screen
+// pixels, for each way they can face: on the hand (art row 15, see sprites.ts).
+const CANDLE_AT: Record<Facing, [number, number]> = { down: [9, -13], up: [-9, -13], right: [1, -13], left: [-1, -13] };
 
 // A kill heard nearby: the sword, then blood that sprays, lands and pools.
 const GORE_MS = 12000;
@@ -76,6 +76,7 @@ export class GameScene extends Phaser.Scene {
   private walk: { path: Vec[]; last: Vec; still: number } | null = null;
   private markG!: Phaser.GameObjects.Graphics;
   private goreG!: Phaser.GameObjects.Graphics;
+  private myCandleG!: Phaser.GameObjects.Graphics; // your candle, in front of your sprite
   private gore = new WeakMap<object, { drops: Drop[]; shook: boolean }>();
   private mark: { x: number; y: number; at: number } | null = null;
   private glowG!: Phaser.GameObjects.Graphics;
@@ -122,6 +123,7 @@ export class GameScene extends Phaser.Scene {
 
     this.markG = this.add.graphics().setDepth(10.4);
     this.goreG = this.add.graphics().setDepth(10.45);
+    this.myCandleG = this.add.graphics().setDepth(10.55);
     this.input.mouse?.disableContextMenu();
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (!p.leftButtonDown()) return;
@@ -379,6 +381,15 @@ export class GameScene extends Phaser.Scene {
     const g = this.dynG.clear();
     if (!snap) return;
 
+    // Everything you can use shares one shine, drawn under the items.
+    let seed = 0;
+    const rect = (r: Rect) => this.shine(g, ((r.x0 + r.x1) / 2) * TS, ((r.y0 + r.y1) / 2) * TS, (Math.max(r.x1 - r.x0, r.y1 - r.y0) / 2) * TS + 8, seed++, time);
+    for (const p of [...view.hearths, ...view.mirrors, ...(view.passages ?? []).flat(), ...snap.loose]) this.shine(g, p.x * TS, p.y * TS, 16, seed++, time);
+    for (const sw of view.switches) this.shine(g, sw.pos.x * TS, (sw.pos.y - 0.5) * TS - 12, 12, seed++, time);
+    rect(view.altar);
+    rect(view.table);
+    for (const sp of snap.spots) if (!sp.s) this.shine(g, view.spots[sp.i].x * TS, view.spots[sp.i].y * TS, 12, 100 + sp.i, time);
+
     // Lamp switches: a brass plate on the wall above, lever up when on.
     view.switches.forEach((sw, i) => {
       const x = sw.pos.x * TS, y = (sw.pos.y - 0.5) * TS - 12;
@@ -426,9 +437,7 @@ export class GameScene extends Phaser.Scene {
       if (sp.s) {
         g.lineStyle(1, 0x6d6457, 0.6).strokeRect(p.x * TS - 6, p.y * TS - 6, 12, 12);
       } else {
-        const glow = 0.5 + 0.3 * Math.sin(time * 0.005 + sp.i);
-        g.fillStyle(0xf0dca0, glow * 0.25).fillCircle(p.x * TS, p.y * TS, 12);
-        g.lineStyle(1.5, 0xf0dca0, glow).strokeRect(p.x * TS - 6, p.y * TS - 6, 12, 12);
+        g.lineStyle(1.5, 0xf0dca0, 0.65).strokeRect(p.x * TS - 6, p.y * TS - 6, 12, 12);
       }
     }
     for (const l of snap.loose) this.page(g, l.x * TS, l.y * TS);
@@ -452,7 +461,8 @@ export class GameScene extends Phaser.Scene {
     for (const [id, body] of this.bodies) if (!bodiesSeen.has(id)) body.setVisible(false);
 
     // Characters.
-    const fx = this.fxG.clear();
+    const fxAll = this.fxG.clear();
+    const fxMine = this.myCandleG.clear();
     const seen = new Set<string>();
     const draw = (id: string, x: number, y: number, lit: boolean, ghost: boolean, self: boolean) => {
       seen.add(id);
@@ -492,23 +502,24 @@ export class GameScene extends Phaser.Scene {
 
       // Everyone alive holds a candle; only a lit one has a flame.
       if (!ghost) {
+        const fx = self ? fxMine : fxAll;
         const [cx, cy] = CANDLE_AT[face];
-        // hy is the top of the wax; the base stays at hand height.
-        const hx = Math.round(px + cx), hy = Math.round(footY + cy - 16);
-        fx.fillStyle(0xb8862e).fillRect(hx - 6, hy + 14, 12, 3); // brass dish
-        fx.fillStyle(0xf3d27a).fillRect(hx - 6, hy + 14, 12, 1);
-        fx.fillStyle(0xf4ecd8).fillRect(hx - 3, hy, 6, 14); // wax
-        fx.fillStyle(0xffffff).fillRect(hx - 2, hy + 1, 1, 12); // its shine
-        fx.fillStyle(0xcfc2a4).fillRect(hx + 2, hy, 1, 14);
-        fx.fillStyle(0xf4ecd8).fillRect(hx + 3, hy + 2, 1, 4); // a drip
+        // by is the dish, held in the hand; the wax stands on it.
+        const hx = Math.round(px + cx), by = Math.round(footY + cy);
+        fx.fillStyle(0xb8862e).fillRect(hx - 4, by, 8, 2); // brass dish
+        fx.fillStyle(0xf3d27a).fillRect(hx - 4, by, 8, 1);
+        fx.fillStyle(0xf4ecd8).fillRect(hx - 2, by - 8, 4, 8); // wax
+        fx.fillStyle(0xffffff).fillRect(hx - 1, by - 7, 1, 6); // its shine
+        fx.fillStyle(0xcfc2a4).fillRect(hx + 1, by - 8, 1, 8);
+        fx.fillStyle(0xf4ecd8).fillRect(hx + 2, by - 6, 1, 2); // a drip
         if (lit) {
-          const f = Math.sin(time * 0.02 + px) > 0.2 ? 2 : 0;
-          fx.fillStyle(0xffb35c, 0.18).fillCircle(hx, hy - 6, 16 + f); // halo
-          fx.fillStyle(0xffd27a, 0.3).fillCircle(hx, hy - 6, 9 + f);
-          fx.fillStyle(0xff7a1a).fillRect(hx - 3, hy - 11 - f, 6, 11 + f);
-          fx.fillStyle(0xffd27a).fillRect(hx - 2, hy - 8 - f, 4, 7 + f);
-          fx.fillStyle(0xfff6d8).fillRect(hx - 1, hy - 5, 2, 4);
-        } else fx.fillStyle(0x2a2420).fillRect(hx - 1, hy - 3, 2, 3); // the burnt wick
+          const f = Math.sin(time * 0.02 + px) > 0.2 ? 1 : 0;
+          fx.fillStyle(0xffb35c, 0.18).fillCircle(hx, by - 12, 10 + f); // halo
+          fx.fillStyle(0xffd27a, 0.3).fillCircle(hx, by - 12, 6 + f);
+          fx.fillStyle(0xff7a1a).fillRect(hx - 2, by - 15 - f, 4, 7 + f);
+          fx.fillStyle(0xffd27a).fillRect(hx - 1, by - 13 - f, 2, 5 + f);
+          fx.fillStyle(0xfff6d8).fillRect(hx - 1, by - 11, 2, 2);
+        } else fx.fillStyle(0x2a2420).fillRect(hx - 1, by - 10, 2, 2); // the burnt wick
       }
 
       let label = this.labels.get(id);
@@ -608,6 +619,20 @@ export class GameScene extends Phaser.Scene {
     const room = world.roomAt(x, y);
     const surface = room >= 0 && STONE_FLOORS.has(world.view.rooms[room].id) ? "stone" : "wood";
     sfx.footstep(self ? 0 : Math.max(-1, Math.min(1, dx / 8)), volume, surface, st.left);
+  }
+
+  // A soft pulsing halo with a sparkle that twinkles now and then; seed
+  // keeps items from pulsing in step.
+  private shine(g: Phaser.GameObjects.Graphics, x: number, y: number, r: number, seed: number, time: number) {
+    const a = 0.5 + 0.3 * Math.sin(time * 0.005 + seed * 1.7);
+    g.fillStyle(0xf0dca0, a * 0.22).fillCircle(x, y, r);
+    g.fillStyle(0xfff6d8, a * 0.18).fillCircle(x, y, r * 0.5);
+    const t = (time / 1000 + seed * 0.61) % 2.4; // one twinkle every 2.4 s
+    if (t < 0.5) {
+      const k = Math.sin((t / 0.5) * Math.PI), sx = Math.round(x + r * 0.45), sy = Math.round(y - r * 0.45);
+      const arm = Math.round(2 + 4 * k);
+      g.fillStyle(0xffffff, k).fillRect(sx - arm, sy, arm * 2 + 1, 1).fillRect(sx, sy - arm, 1, arm * 2 + 1);
+    }
   }
 
   private page(g: Phaser.GameObjects.Graphics, x: number, y: number) {
