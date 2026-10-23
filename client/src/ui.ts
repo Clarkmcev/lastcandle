@@ -47,6 +47,7 @@ export class UI {
   private loadingTimer = 0;
   private revealArt?: RevealArt;
   private revealing = false; // the role card is up: its music, not the room's
+  private resuming = false; // rejoining after a reload: skip the role card
   private resultArt?: ResultArt;
   private resultShown = "";
   private where: "home" | "lobby" | "game" = "home";
@@ -94,6 +95,8 @@ export class UI {
     if (code) $<HTMLInputElement>("code").value = code;
 
     const go = (room: string) => {
+      sessionStorage.removeItem("lastcandle:left");
+      show("rejoin", false);
       const n = name.value.trim();
       if (!n) {
         this.homeError("Write your name on the guest list first.");
@@ -113,11 +116,22 @@ export class UI {
     $<HTMLInputElement>("code").onkeydown = (e) => {
       if (e.key === "Enter") $("join").click();
     };
+    $("rejoinGo").onclick = () => {
+      this.resuming = true;
+      go(sessionStorage.getItem("lastcandle:left") ?? "");
+    };
+    this.showRejoin();
+    // A reload keeps the code in the URL and the token in this tab, so pick
+    // up where we were (the server keeps our place in a match).
+    if (code && sessionStorage.getItem(`lastcandle:${code}`) && name.value.trim()) {
+      this.resuming = true;
+      go(code);
+    }
 
     // Developer mode (server started with -dev): ?dev starts an empty sandbox
     // match at once. ?dev=host plays the Host; &bots=N adds guest bots.
     const dev = new URLSearchParams(location.search);
-    if (dev.has("dev")) {
+    if (dev.has("dev") && !this.resuming) {
       if (!name.value.trim()) name.value = "Developer";
       go("");
       let started = false;
@@ -424,17 +438,27 @@ export class UI {
   }
 
   // Back to the landing page: closing the connection takes us out of the
-  // room, as closing the tab would.
+  // room, as closing the tab would. Leaving a match keeps the token, and the
+  // server keeps our place, so the home screen offers to rejoin.
   private leave() {
     const s = this.session;
     if (!s) return;
     s.net.close();
     this.session = undefined;
-    sessionStorage.removeItem(`lastcandle:${s.code}`);
+    if (this.where === "game") sessionStorage.setItem("lastcandle:left", s.code);
+    else sessionStorage.removeItem(`lastcandle:${s.code}`);
     history.replaceState(null, "", location.pathname + location.search);
     this.homeError("");
     this.closeSettings();
     this.screen("home");
+  }
+
+  // The rejoin box: shown while we hold a token for the match we left.
+  private showRejoin() {
+    const code = sessionStorage.getItem("lastcandle:left");
+    const on = !!code && !!sessionStorage.getItem(`lastcandle:${code}`);
+    if (on) $("rejoinCode").textContent = code;
+    show("rejoin", on);
   }
 
   private homeError(text: string) {
@@ -448,11 +472,16 @@ export class UI {
       this.screen("home");
     };
     s.net.onClose = (reason) => {
+      // Refused (the room closed, say): forget the token so a reload stays home.
+      if (reason) sessionStorage.removeItem(`lastcandle:${s.code}`);
+      else if (this.where === "game") sessionStorage.setItem("lastcandle:left", s.code);
+      this.resuming = false;
       if (reason) this.homeError(reason);
       else this.homeError("Lost the connection to the manor. Rejoin with the same code to continue.");
       this.screen("home");
     };
     s.on("lobby", () => {
+      if (s.lobby?.state === "lobby") this.resuming = false;
       this.renderLobby();
       if (this.settingsOpen() && this.panel === "rules") this.renderRules();
     });
@@ -469,6 +498,7 @@ export class UI {
     show("hud", name === "game");
     this.landing.setActive(name !== "game");
     this.where = name;
+    if (name === "home") this.showRejoin();
     if (name !== "game") playSong("menu");
     show("corner", name !== "game");
     if (name !== "game") this.endLoading();
@@ -537,7 +567,7 @@ export class UI {
     this.lastPhase = "";
     $("chatLog").innerHTML = "";
     $("ghostLog").innerHTML = "";
-    this.showLoading(() => this.reveal());
+    this.showLoading(() => (this.resuming ? (this.resuming = false) : this.reveal()));
   }
 
   // The role card shown once the night has loaded: your character in

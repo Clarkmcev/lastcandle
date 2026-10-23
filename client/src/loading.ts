@@ -4,20 +4,10 @@
 // crack where it stands ajar, and the rain keeps falling. The arriving
 // character walks up the steps in front of it (an HTML sprite, see ui.ts).
 
+import { dither, rng } from "./pixel";
+
 const W = 128; // art pixels; the canvas is scaled up crisply with CSS
 const H = 96;
-
-function rng(seed: number) {
-  return () => {
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-const dither = (x: number, y: number) => (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
 
 // Where things stand, in art pixels.
 const DOOR = { x: 46, y: 26, w: 36, h: 50 }; // the doorway, arch included
@@ -38,7 +28,7 @@ export class LoadingArt {
     this.g = canvas.getContext("2d")!;
     this.base = this.paint();
     const r = rng(5);
-    this.drops = Array.from({ length: 60 }, () => ({ x: r() * W, y: r() * H, v: 40 + r() * 40 }));
+    this.drops = Array.from({ length: 24 }, () => ({ x: r() * W, y: r() * H, v: 40 + r() * 40 }));
   }
 
   start() {
@@ -66,7 +56,6 @@ export class LoadingArt {
       g.fillStyle = col;
       g.fillRect(x, y, w, h);
     };
-    const r = rng(11);
 
     // Night sky above the porch roof, dithered towards the horizon.
     const sky = ["#07060d", "#0e0b18", "#161226", "#1f1932"];
@@ -88,10 +77,8 @@ export class LoadingArt {
         const row = Math.floor((y - 20) / 5);
         const off = row % 2 ? 4 : 0;
         const col = Math.floor((x + off) / 8);
-        let c = ["#2c2630", "#322b36", "#28232c", "#2f2934"][Math.floor(rng(row * 97 + col)() * 4)];
-        if ((y - 20) % 5 === 0 || (x + off) % 8 === 0) c = "#17131a";
-        else if ((y - 20) % 5 === 1) c = "#3a333e";
-        px(x, y, 1, 1, c);
+        const mortar = (y - 20) % 5 === 0 || (x + off) % 8 === 0;
+        px(x, y, 1, 1, mortar ? "#1e1a22" : (row + col) % 2 ? "#2c2630" : "#2f2934");
       }
     }
     // The doorway: a stone arch, then the dark wood doors, one ajar.
@@ -112,7 +99,6 @@ export class LoadingArt {
     // Planks and iron bands on both leaves.
     for (let x = dx + 2; x < dx + dw - 2; x += 4) px(x, dy + 6, 1, dh - 8, "#2a170c");
     for (const by of [dy + 16, dy + 36]) px(dx + 2, by, dw - 4, 2, "#1a1414");
-    for (const by of [dy + 16, dy + 36]) for (let x = dx + 4; x < dx + dw - 4; x += 5) px(x, by, 1, 1, "#5a5560");
     // Ring knockers.
     for (const kx of [dx + dw / 2 - 6, dx + dw / 2 + 5]) {
       px(kx - 1, dy + 26, 3, 1, "#c8a040");
@@ -133,12 +119,6 @@ export class LoadingArt {
       px(DOOR.x - inset, y, DOOR.w + inset * 2, 1, "#6a6270");
     }
     px(0, STEPS_Y + 18, W, H, "#141018");
-    // Ivy creeping up the wall.
-    for (let i = 0; i < 90; i++) {
-      const x = Math.floor(r() * 18) + (r() < 0.5 ? 0 : W - 18);
-      const y = 20 + Math.floor(r() ** 0.6 * 56);
-      px(x, y, 1, 1, r() < 0.5 ? "#1e3a22" : "#2a4a2c");
-    }
     // Lantern brackets.
     for (const lx of LANTERNS) {
       px(lx - 1, LANTERN_Y - 9, 3, 2, "#1a1414");
@@ -157,7 +137,7 @@ export class LoadingArt {
     const still = this.reduced;
 
     // Light through the door left ajar, flickering like a fire inside.
-    const f = still ? 1 : 0.85 + 0.15 * Math.sin(t * 7) * Math.sin(t * 3.1);
+    const f = still ? 1 : 0.95 + 0.05 * Math.sin(t * 3);
     const cx = DOOR.x + DOOR.w / 2;
     g.fillStyle = "#ffb347";
     g.fillRect(cx, DOOR.y + 4, 1, DOOR.h - 4);
@@ -168,7 +148,7 @@ export class LoadingArt {
     }
     // The lanterns and the pools of light they throw.
     for (const [i, lx] of LANTERNS.entries()) {
-      const lf = still ? 1 : 0.8 + 0.2 * Math.sin(t * (9 + i * 3) + i * 2);
+      const lf = still ? 1 : 0.95 + 0.05 * Math.sin(t * 2 + i * 2);
       for (const [rad, a] of [[22, 0.05], [15, 0.07], [9, 0.1]] as const) {
         g.fillStyle = `rgba(255, 170, 80, ${a * lf})`;
         for (let dy = -rad; dy <= rad; dy++) {
@@ -178,19 +158,19 @@ export class LoadingArt {
       }
     }
     g.globalCompositeOperation = "source-over";
-    for (const [i, lx] of LANTERNS.entries()) {
-      const tall = still ? 4 : 3 + Math.round(Math.sin(t * (11 + i * 4)) + 0.5);
+    for (const lx of LANTERNS) {
+      const tall = 4;
       g.fillStyle = "#ffd27a";
       g.fillRect(lx - 2, LANTERN_Y - 3, 5, 8);
       g.fillStyle = "#ff8a2a";
       g.fillRect(lx - 1, LANTERN_Y + 5 - tall - 2, 3, tall + 1);
       g.fillStyle = "#fff3c4";
-      g.fillRect(lx, LANTERN_Y + 2 - (tall > 3 ? 1 : 0), 1, 2);
+      g.fillRect(lx, LANTERN_Y + 1, 1, 2);
       g.fillStyle = "#1a1414";
       g.fillRect(lx, LANTERN_Y - 3, 1, 8); // the frame's middle bar
     }
     // Rain, slanting past the porch.
-    g.fillStyle = "rgba(160, 175, 220, 0.4)";
+    g.fillStyle = "rgba(160, 175, 220, 0.22)";
     for (const d of this.drops) {
       if (!still) {
         d.y += d.v * dt;
