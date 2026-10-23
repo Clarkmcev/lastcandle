@@ -56,7 +56,8 @@ export class Session {
   onError: (text: string) => void = () => {};
 
   constructor(room: string, name: string, color: string) {
-    const token = sessionStorage.getItem(`lastcandle:${room.toUpperCase()}`) ?? "";
+    this.code = room.toUpperCase();
+    const token = sessionStorage.getItem(`lastcandle:${this.code}`) ?? "";
     this.net = new Net(room, name, token, color);
     this.net.on("welcome", (m) => {
       this.me = m.id;

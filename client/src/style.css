@@ -634,6 +634,25 @@ label {
   text-align: center;
 }
 
+.rejoin {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--well);
+  box-shadow: inset 0 0 0 var(--p) var(--frame);
+}
+
+.rejoin p {
+  margin: 0;
+  color: var(--ink);
+}
+
+.rejoin b {
+  color: var(--gold);
+  font-weight: normal;
+}
+
 .or {
   text-align: center;
   color: var(--quiet);
@@ -806,7 +825,7 @@ button.x {
   place-items: center;
   padding: 24px;
   overflow-y: auto;
-  background: repeating-conic-gradient(#0b0705 0 25%, #120c08 0 50%) 0 0 / 6px 6px;
+  background: #0b0705;
 }
 
 .loadingCard {
@@ -1423,17 +1442,11 @@ button.x {
   line-height: 1.4;
   margin: 6px 0 10px;
   color: var(--gold);
-  text-shadow:
-    3px 3px 0 #a8500e,
-    6px 6px 0 #000;
-  animation: stamp 0.6s steps(4);
+  text-shadow: 3px 3px 0 #000;
 }
 
 .revealText h1.red {
   color: var(--red);
-  text-shadow:
-    3px 3px 0 #6a1408,
-    6px 6px 0 #000;
 }
 
 .revealLine {
@@ -1483,9 +1496,8 @@ button.x {
   margin: 0;
   font-family: var(--display);
   font-size: 13px;
-  color: var(--gold);
+  color: var(--quiet);
   text-shadow: 3px 3px 0 #000;
-  animation: blink 1s steps(1) infinite;
 }
 
 @keyframes card-in {
@@ -1495,23 +1507,8 @@ button.x {
   }
 }
 
-@keyframes stamp {
-  from {
-    transform: scale(1.6);
-    opacity: 0;
-  }
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0.35;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .revealCard,
-  .revealText h1,
-  .revealGo {
+  .revealCard {
     animation: none;
   }
 }

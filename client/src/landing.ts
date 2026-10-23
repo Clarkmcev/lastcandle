@@ -4,30 +4,18 @@
 // different speeds with the pointer (parallax) while fog drifts, rain falls
 // and lightning strikes behind the hill.
 
+import { dither, rng } from "./pixel";
 import * as sfx from "./sfx";
 
 // The art is about 190 pixels tall in landscape and 200 wide in portrait.
 const ART_ROWS = 190;
 const ART_COLS = 200;
 
-// 4×4 ordered dither, so gradients break into crisp pixel patterns.
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-const threshold = (x: number, y: number) => (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
-
 const SKY = ["#06050c", "#0b0915", "#110e1f", "#18132a", "#211a36", "#2b2243", "#372b50", "#463860"];
 const MOON = { body: "#e9e1c6", limb: "#c9bf9f", crater: "#d3c9a9" };
 
 type RGB = [number, number, number];
 const rgb = (hex: string): RGB => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as RGB;
-
-function rng(seed: number) {
-  return () => {
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function layer(w: number, h: number) {
   const canvas = document.createElement("canvas");
@@ -193,7 +181,7 @@ export class Landing {
       for (let x = 0; x < w; x++) {
         const glow = Math.exp(-Math.hypot(x - mx, (y - my) * 1.3) / glowR) * 0.55;
         const v = Math.min(1, (y / h) * 0.7 + glow) * (pal.length - 1);
-        const i = Math.min(pal.length - 1, Math.floor(v) + (v % 1 > threshold(x, y) ? 1 : 0));
+        const i = Math.min(pal.length - 1, Math.floor(v) + (v % 1 > dither(x, y) ? 1 : 0));
         img.data.set([...pal[i], 255], (y * w + x) * 4);
       }
     }
@@ -414,7 +402,7 @@ export class Landing {
       for (let y = Math.max(0, Math.floor(yc - thick * 2.5)); y < Math.min(h, yc + thick * 2.5); y++) {
         const d = (y - yc) / thick;
         const v = Math.exp(-d * d) * density * 3;
-        const level = Math.min(3, Math.floor(v) + (v % 1 > threshold(x, y) ? 1 : 0));
+        const level = Math.min(3, Math.floor(v) + (v % 1 > dither(x, y) ? 1 : 0));
         if (level) img.data.set([150, 148, 190, Math.round((level / 3) * alpha * 255)], (y * width + x) * 4);
       }
     }

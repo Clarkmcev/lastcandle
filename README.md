@@ -130,6 +130,7 @@ client/                      TypeScript + Phaser 3, bundled with Vite
   src/landing.ts             Pixel-art storm behind the menus: the manor on its hill, mountains, parallax layers, fog, rain, lightning
   src/loading.ts             The loading screen before each night: the manor door in the rain, your character on the steps
   src/reveal.ts              Story art: the Guest or Host card at nightfall, and the verdict (cellar or table) after each meeting
+  src/pixel.ts               Shared helpers for the painted art: ordered dither, seeded random
   src/ui.ts                  HTML screens: lobby, HUD, meetings, mirror view, end screen
 ```
 

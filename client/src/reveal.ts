@@ -1,11 +1,11 @@
 // The role presentation at the start of each night: your character in
 // pixel art, framed for the part you will play.
 //
-// A Guest stands in a dark room holding a candle; its light falls in warm
-// rings, dust drifts through it, and rain runs down the window. The Host is
-// lit blood-red from below, and on the wall behind looms a huge shadow of
-// them with glowing eyes, among candles they have already snuffed.
+// A Guest stands in a dark room holding a candle, rain on the window. The
+// Host is lit red from below, and on the wall behind looms a huge shadow of
+// them with glowing eyes.
 
+import { dither } from "./pixel";
 import { FRAME_H, FRAME_W, frameIndex, sheet } from "./sprites";
 
 const W = 160; // art pixels, shown at 3×
@@ -13,8 +13,19 @@ const H = 112;
 const FLOOR = 88; // where the floor begins
 const SCALE = 3; // the character is drawn at 3× within the art
 
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-const dither = (x: number, y: number) => (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
+// A warm (or red) light: three stacked, brightening discs, added on top.
+function glow(g: CanvasRenderingContext2D, x: number, y: number, r: number, rgb: string, alpha: number) {
+  g.globalCompositeOperation = "lighter";
+  for (const [k, a] of [[1, 0.35], [0.7, 0.5], [0.42, 0.8]] as const) {
+    g.fillStyle = `rgba(${rgb}, ${alpha * a})`;
+    const rr = Math.round(r * k);
+    for (let dy = -rr; dy <= rr; dy++) {
+      const half = Math.floor(Math.sqrt(rr * rr - dy * dy));
+      g.fillRect(x - half, y + dy, half * 2 + 1, 1);
+    }
+  }
+  g.globalCompositeOperation = "source-over";
+}
 
 // One frame of the character, facing you, as its own canvas.
 function portrait(color: string) {
@@ -42,8 +53,7 @@ export class RevealArt {
   private g: CanvasRenderingContext2D;
   private raf = 0;
   private reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  private motes = Array.from({ length: 14 }, (_, i) => ({ x: (i * 37) % W, y: (i * 53) % FLOOR, v: 2 + (i % 4) }));
-  private drops = Array.from({ length: 16 }, (_, i) => ({ x: (i * 7) % 26, y: (i * 11) % 30 }));
+  private drops = Array.from({ length: 8 }, (_, i) => ({ x: (i * 7) % 26, y: (i * 11) % 30 }));
 
   constructor(canvas: HTMLCanvasElement) {
     canvas.width = W;
@@ -84,7 +94,7 @@ export class RevealArt {
       g.fillStyle = col;
       g.fillRect(x, y, w, h);
     };
-    const [paper, motif] = host ? ["#2a0c10", "#3e1418"] : ["#1e2a1e", "#2a3a28"];
+    const [paper, motif] = host ? ["#2a0c10", "#300e12"] : ["#1e2a1e", "#222f22"];
     px(0, 0, W, FLOOR, paper);
     for (let y = 2; y < FLOOR - 24; y += 8) {
       for (let x = ((y / 8) % 2) * 4; x < W; x += 8) {
@@ -129,23 +139,9 @@ export class RevealArt {
     }
   }
 
-  private glow(x: number, y: number, r: number, rgb: string, alpha: number) {
-    const g = this.g;
-    g.globalCompositeOperation = "lighter";
-    for (const [k, a] of [[1, 0.35], [0.7, 0.5], [0.42, 0.8]] as const) {
-      g.fillStyle = `rgba(${rgb}, ${alpha * a})`;
-      const rr = Math.round(r * k);
-      for (let dy = -rr; dy <= rr; dy++) {
-        const half = Math.floor(Math.sqrt(rr * rr - dy * dy));
-        g.fillRect(x - half, y + dy, half * 2 + 1, 1);
-      }
-    }
-    g.globalCompositeOperation = "source-over";
-  }
-
   private flame(x: number, y: number, t: number, big = 1) {
     const g = this.g;
-    const tall = Math.round((3 + (this.reduced ? 0 : Math.sin(t * 13) + Math.sin(t * 7.3))) * big);
+    const tall = Math.round((3 + (this.reduced ? 0 : 0.5 * Math.sin(t * 6))) * big);
     g.fillStyle = "#ff7a1a";
     g.fillRect(x - 1, y - tall - 1, 3, tall + 1);
     g.fillRect(x, y - tall - 2, 1, 1);
@@ -177,19 +173,9 @@ export class RevealArt {
     g.fillRect(hx - 1, hy - 8, 3, 9);
     g.fillStyle = "#c8a040";
     g.fillRect(hx - 3, hy, 7, 2);
-    const flick = this.reduced ? 1 : 0.9 + 0.1 * Math.sin(t * 9) * Math.sin(t * 4.1);
-    this.glow(hx, hy - 11, 40 * flick, "255, 160, 70", 0.12);
+    const flick = this.reduced ? 1 : 0.97 + 0.03 * Math.sin(t * 3);
+    glow(this.g, hx, hy - 11, 40 * flick, "255, 160, 70", 0.12);
     this.flame(hx, hy - 9, t);
-    // Dust drifting through the light.
-    g.fillStyle = "rgba(255, 220, 160, 0.6)";
-    for (const m of this.motes) {
-      if (!this.reduced) {
-        m.y -= m.v * dt;
-        m.x += Math.sin(t + m.v) * dt * 2;
-        if (m.y < 0) m.y = FLOOR;
-      }
-      if (Math.hypot(m.x - hx, m.y - hy) < 36) g.fillRect(Math.round(m.x), Math.round(m.y), 1, 1);
-    }
     this.vignette(hx - 4, hy, 78, "rgba(5, 3, 7, 0.85)");
   }
 
@@ -215,7 +201,7 @@ export class RevealArt {
     if (!blink) {
       const ey = sy + Math.round(sh * 0.4);
       for (const ex of [sx + sw * 0.36, sx + sw * 0.64]) {
-        this.glow(Math.round(ex), ey, 6, "255, 40, 20", 0.35);
+        glow(this.g, Math.round(ex), ey, 6, "255, 40, 20", 0.35);
         g.fillStyle = "#ff3a1a";
         g.fillRect(Math.round(ex) - 2, ey, 4, 2);
         g.fillStyle = "#ffd0a0";
@@ -234,17 +220,13 @@ export class RevealArt {
         g.fillRect(Math.round(cx + Math.sin(age * 6 + i) * 3), Math.round(FLOOR - age * 30) - (i % 2) * 2, 2, 2);
       }
     }
-    // You, lit blood-red from below: strongest at the feet, fading in bands
-    // towards the face.
+    // You, lit red from below the waist.
     g.drawImage(me, x, y, cw, ch);
-    const pulse = this.reduced ? 0 : 0.05 * Math.sin(t * 5);
-    for (const [from, alpha] of [[0.45, 0.12], [0.62, 0.2], [0.8, 0.3]] as const) {
-      const sy0 = Math.floor(FRAME_H * from);
-      g.globalAlpha = alpha + pulse;
-      g.drawImage(redLit, 0, sy0, FRAME_W, FRAME_H - sy0, x, y + sy0 * SCALE, cw, ch - sy0 * SCALE);
-    }
+    const sy0 = Math.floor(FRAME_H * 0.6);
+    g.globalAlpha = 0.2;
+    g.drawImage(redLit, 0, sy0, FRAME_W, FRAME_H - sy0, x, y + sy0 * SCALE, cw, ch - sy0 * SCALE);
     g.globalAlpha = 1;
-    this.glow(W / 2, FLOOR + 10, 34, "255, 40, 20", 0.12);
+    glow(this.g, W / 2, FLOOR + 10, 34, "255, 40, 20", 0.12);
     this.vignette(W / 2, FLOOR - 20, 84, "rgba(10, 0, 2, 0.88)");
   }
 }
@@ -366,20 +348,6 @@ export class ResultArt {
     this.g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
   }
 
-  private glow(x: number, y: number, r: number, rgb: string, alpha: number) {
-    const g = this.g;
-    g.globalCompositeOperation = "lighter";
-    for (const [k, a] of [[1, 0.35], [0.7, 0.5], [0.42, 0.8]] as const) {
-      g.fillStyle = `rgba(${rgb}, ${alpha * a})`;
-      const rr = Math.round(r * k);
-      for (let dy = -rr; dy <= rr; dy++) {
-        const half = Math.floor(Math.sqrt(rr * rr - dy * dy));
-        g.fillRect(x - half, y + dy, half * 2 + 1, 1);
-      }
-    }
-    g.globalCompositeOperation = "source-over";
-  }
-
   private darken(cx: number, cy: number, radius: number) {
     const g = this.g;
     g.fillStyle = "rgba(4, 2, 6, 0.9)";
@@ -401,8 +369,7 @@ export class ResultArt {
         const row = Math.floor(y / 6);
         const col = Math.floor((x + (row % 2) * 5) / 10);
         const mortar = y % 6 === 0 || (x + (row % 2) * 5) % 10 === 0;
-        const v = rng(row * 131 + col)();
-        px(x, y, 1, 1, mortar ? "#120e10" : v < 0.33 ? "#2a2428" : v < 0.66 ? "#302a2e" : "#262024");
+        px(x, y, 1, 1, mortar ? "#1a1618" : (row + col) % 2 ? "#2a2428" : "#2c262a");
       }
     }
     // Stairs coming down from the left, the way they brought you.
@@ -421,12 +388,6 @@ export class ResultArt {
     px(dx, 50, 66, 3, "#3a3a44");
     px(dx + 48, 46, 6, 10, "#5a5a68"); // the lock
     px(dx + 50, 50, 2, 3, "#0c0a0c");
-    // A chain on the wall, a puddle, water dripping.
-    for (let y = 22; y < 54; y += 4) px(140, y, 2, 3, "#5a5a68");
-    px(136, 54, 10, 3, "#5a5a68");
-    px(14, 100, 26, 3, "#141c26");
-    const drip = this.reduced ? 0 : (t * 0.8) % 1;
-    px(26, 60 + drip * 40, 1, 2, "#6a8aaa");
     // The last candle down here, guttering out as the scene darkens.
     const fade = this.reduced ? 1 : Math.max(0, 1 - t / 7);
     const cx = 150;
@@ -436,7 +397,7 @@ export class ResultArt {
       const tall = Math.max(1, Math.round((2 + Math.sin(t * 13) + Math.sin(t * 5.7)) * fade));
       px(cx - 1, 67 - tall, 3, tall, "#ff7a1a");
       px(cx, 67 - tall + 1, 1, Math.max(1, tall - 1), "#ffd27a");
-      this.glow(cx, 64, 40 * fade, "255, 150, 60", 0.14);
+      glow(this.g, cx, 64, 40 * fade, "255, 150, 60", 0.14);
     } else {
       const age = (t % 1.5) / 1.5;
       px(cx + Math.sin(age * 6) * 2, 64 - age * 16, 2, 2, `rgba(150, 140, 160, ${(0.5 * (1 - age)).toFixed(2)})`);
@@ -449,7 +410,7 @@ export class ResultArt {
     this.g.imageSmoothingEnabled = false;
     // Red damask wall, wainscot, a portrait.
     px(0, 0, W, H, "#3a1216");
-    for (let y = 3; y < 56; y += 8) for (let x = ((y / 8) % 2) * 4; x < W; x += 8) px(x + 1, y, 1, 3, "#521c1e");
+    for (let y = 3; y < 56; y += 8) for (let x = ((y / 8) % 2) * 4; x < W; x += 8) px(x + 1, y, 1, 3, "#3e1418");
     px(0, 56, W, 3, "#4a2c16");
     px(0, 59, W, 20, "#2e1a0e");
     px(66, 8, 28, 22, "#a8802e");
@@ -461,8 +422,7 @@ export class ResultArt {
     const space = Math.min(22, (W - 20) / Math.max(1, n));
     const left = W / 2 - (space * (n - 1)) / 2;
     guests.forEach((g, i) => {
-      const bob = this.reduced ? 0 : Math.round(Math.sin(t * 2 + i * 1.3));
-      this.g.drawImage(g, Math.round(left + i * space - FRAME_W), 40 + bob, FRAME_W * 2, FRAME_H * 2);
+      this.g.drawImage(g, Math.round(left + i * space - FRAME_W), 40, FRAME_W * 2, FRAME_H * 2);
     });
     // The table across the front: cloth, plates, candelabras.
     px(6, 74, W - 12, 4, "#efe6cf");
@@ -478,21 +438,11 @@ export class ResultArt {
       px(cx - 5, 66, 11, 2, "#a8802e");
       for (const dx of [-5, 0, 5]) {
         px(cx + dx, 60, 1, 6, "#e8dcc0");
-        const tall = this.reduced ? 2 : 2 + Math.round(Math.sin(t * 11 + dx + cx) + 0.4);
+        const tall = this.reduced ? 2 : 2 + Math.round(0.5 * Math.sin(t * 4 + dx + cx));
         px(cx + dx, 60 - tall, 1, tall, "#ffb347");
       }
-      this.glow(cx, 58, 30, "255, 160, 70", 0.12);
+      glow(this.g, cx, 58, 30, "255, 160, 70", 0.12);
     }
     this.darken(W / 2, 60, 90);
   }
-}
-
-// rng is a small seeded random source, for repeatable stone.
-function rng(seed: number) {
-  return () => {
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
